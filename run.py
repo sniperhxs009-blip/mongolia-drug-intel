@@ -36,11 +36,12 @@ from modules.storage import (
     get_intel_stats,
 )
 from modules.search_tool import search
+from modules.translator import translate_article
 
 app = FastAPI(
     title="蒙古国涉毒新闻情报爬虫系统",
-    description="定向采集蒙古国涉毒资讯，覆盖 17 个数据源",
-    version="2.1.0",
+    description="定向采集蒙古国涉毒资讯，覆盖 19 个数据源",
+    version="3.0.0",
 )
 
 TEMPLATES_DIR = BASE_DIR / "templates"
@@ -124,11 +125,19 @@ async def api_crawl_stream(request: Request):
     article_queue: asyncio.Queue = asyncio.Queue()
 
     async def on_article(item: dict):
-        """每解析出一条情报时调用"""
+        """每解析出一条情报时：翻译 → 持久化 → 推送"""
+        # 翻译标题和摘要为中文
+        try:
+            item = await translate_article(item)
+        except Exception:
+            pass  # 翻译失败不影响采集
         # 立即持久化
         is_new = append_single_intel(item)
         if is_new:
             crawl_state["total_articles"] += 1
+            await article_queue.put(("article", item))
+        else:
+            # 重复文章也推送（让前端知道）
             await article_queue.put(("article", item))
 
     async def on_progress(msg: str):
@@ -224,7 +233,7 @@ if __name__ == "__main__":
 ║    启动地址: http://localhost:{port}                       ║
 ║    API 文档: http://localhost:{port}/docs                 ║
 ║                                                          ║
-║    数据源: 17 个站点 (5 大类别) · 高速并行采集             ║
+║    数据源: 19 个站点 (5 大类别) · SSE 实时推送+翻译       ║
 ║    关键词: 蒙/中/英 三语种 · SSE 实时推送                 ║
 ╚══════════════════════════════════════════════════════════╝
     """)

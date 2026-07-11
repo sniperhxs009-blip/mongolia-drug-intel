@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>蒙古国涉毒新闻情报系统</title>
+    <title>蒙古国涉毒新闻情报系统 v3.0</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
@@ -14,7 +14,7 @@
         .stat-item { text-align: center; }
         .stat-value { font-size: 1.8em; font-weight: bold; color: #38bdf8; }
         .stat-label { font-size: 0.75em; color: #94a3b8; }
-        .container { max-width: 1400px; margin: 0 auto; padding: 24px 40px; }
+        .container { max-width: 1500px; margin: 0 auto; padding: 24px 40px; }
         .controls { background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
         .controls input, .controls select { padding: 10px 16px; border-radius: 8px; border: 1px solid #475569; background: #0f172a; color: #e2e8f0; font-size: 0.9em; min-width: 160px; }
         .controls input::placeholder { color: #64748b; }
@@ -25,26 +25,35 @@
         .btn-crawl { background: #10b981; color: #fff; }
         .btn-crawl:hover { background: #059669; }
         .btn-crawl:disabled { background: #475569; cursor: not-allowed; }
+        .btn-stop { background: #ef4444; color: #fff; display: none; }
+        .btn-stop:hover { background: #dc2626; }
+        .btn-stop.active { display: inline-block; }
         .btn-reset { background: #475569; color: #e2e8f0; }
         .btn-reset:hover { background: #64748b; }
         .progress-bar { background: #334155; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; display: none; align-items: center; gap: 12px; }
         .progress-bar.active { display: flex; }
-        .spinner { width: 20px; height: 20px; border: 3px solid #475569; border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite; }
+        .spinner { width: 20px; height: 20px; border: 3px solid #475569; border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite; flex-shrink: 0; }
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
         .progress-text { color: #94a3b8; font-size: 0.9em; flex: 1; }
-        .table-container { background: #1e293b; border-radius: 12px; overflow: hidden; }
-        table { width: 100%; border-collapse: collapse; }
-        th { background: #334155; padding: 14px 16px; text-align: left; font-size: 0.8em; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; }
-        td { padding: 14px 16px; border-bottom: 1px solid #1e293b; font-size: 0.88em; vertical-align: top; }
-        tr:hover td { background: rgba(56,189,248,0.05); }
-        .lang-tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75em; font-weight: 600; }
+        .articles-list { display: flex; flex-direction: column; gap: 12px; }
+        .article-card { background: #1e293b; border-radius: 10px; padding: 18px 22px; animation: fadeIn 0.3s ease; border-left: 3px solid #334155; }
+        .article-card:hover { border-left-color: #38bdf8; background: #1e293bcc; }
+        .article-title-orig { font-size: 1.05em; font-weight: 700; color: #f1f5f9; margin-bottom: 4px; line-height: 1.4; }
+        .article-title-cn { font-size: 0.95em; color: #fbbf24; margin-bottom: 4px; line-height: 1.4; }
+        .article-title-cn::before { content: "🇨🇳 "; font-size: 0.8em; }
+        .article-summary { font-size: 0.85em; color: #94a3b8; margin: 6px 0; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+        .article-summary-cn { font-size: 0.83em; color: #cbd5e1; margin: 2px 0 6px 0; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+        .article-summary-cn::before { content: "摘要: "; color: #64748b; font-size: 0.85em; }
+        .article-meta { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 8px; font-size: 0.8em; color: #64748b; }
+        .article-meta span { display: inline-flex; align-items: center; gap: 4px; }
+        .lang-tag { padding: 2px 8px; border-radius: 4px; font-size: 0.75em; font-weight: 600; }
         .lang-mn { background: #7c3aed20; color: #a78bfa; }
         .lang-zh { background: #ef444420; color: #f87171; }
         .lang-en { background: #10b98120; color: #34d399; }
-        .kw-tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75em; background: #38bdf820; color: #38bdf8; margin-left: 4px; }
-        .source-link { color: #38bdf8; text-decoration: none; font-size: 0.85em; }
+        .source-link { color: #38bdf8; text-decoration: none; font-weight: 600; }
         .source-link:hover { text-decoration: underline; }
+        .site-label { background: #334155; padding: 2px 8px; border-radius: 4px; color: #e2e8f0; }
         .empty-state { text-align: center; padding: 60px 20px; color: #64748b; }
         .empty-state .icon { font-size: 3em; margin-bottom: 16px; }
         .pagination { display: flex; justify-content: center; align-items: center; gap: 12px; padding: 20px; }
@@ -58,16 +67,14 @@
             .controls input, .controls select { width: 100%; min-width: auto; }
             .stats-bar { gap: 12px; }
             .stat-value { font-size: 1.3em; }
-            table { font-size: 0.8em; }
-            th, td { padding: 10px 8px; }
         }
     </style>
 </head>
 <body>
     <div class="header">
         <div>
-            <h1>蒙古国涉毒新闻情报系统</h1>
-            <div class="subtitle">Mongolia Drug Intelligence Crawler — 覆盖 17 个站点 · 蒙中英三语种</div>
+            <h1>蒙古国涉毒新闻情报系统 v3.0</h1>
+            <div class="subtitle">Mongolia Drug Intelligence — 19 站点 · 严格蒙古+毒品双过滤 · 原文+中文双语显示</div>
         </div>
         <div class="stats-bar">
             <div class="stat-item">
@@ -90,57 +97,35 @@
     </div>
 
     <div class="container">
-        <!-- 进度条 -->
         <div class="progress-bar" id="progress-bar">
             <div class="spinner"></div>
             <div class="progress-text" id="progress-text">正在初始化采集...</div>
         </div>
 
-        <!-- 搜索控制 -->
         <div class="controls">
-            <input type="text" id="search-keyword" placeholder="关键词搜索（地名/毒品词）..." onkeydown="if(event.key==='Enter')searchIntel()">
+            <input type="text" id="search-keyword" placeholder="关键词搜索..." onkeydown="if(event.key==='Enter')searchIntel()">
             <select id="search-language">
                 <option value="">全部语种</option>
-                <option value="mn">蒙语 (mn)</option>
-                <option value="zh">中文 (zh)</option>
-                <option value="en">英语 (en)</option>
+                <option value="mn">蒙语</option>
+                <option value="zh">中文</option>
+                <option value="en">英语</option>
             </select>
-            <input type="date" id="search-start-date" placeholder="开始日期">
-            <input type="date" id="search-end-date" placeholder="结束日期">
+            <input type="date" id="search-start-date">
+            <input type="date" id="search-end-date">
             <button class="btn btn-search" onclick="searchIntel()">搜索</button>
             <button class="btn btn-reset" onclick="resetSearch()">重置</button>
             <button class="btn btn-crawl" id="btn-crawl" onclick="startCrawl()">开始采集</button>
+            <button class="btn btn-stop" id="btn-stop" onclick="stopCrawl()">停止采集</button>
         </div>
 
-        <!-- 数据表格 -->
-        <div class="table-container">
-            <table>
-                <thead>
-                    <tr>
-                        <th>标题</th>
-                        <th>时间</th>
-                        <th>来源</th>
-                        <th>语种</th>
-                        <th>命中词</th>
-                        <th>链接</th>
-                    </tr>
-                </thead>
-                <tbody id="table-body">
-                    <tr><td colspan="6" class="empty-state">
-                        <div class="icon">🔍</div>
-                        <div>暂无数据 — 点击「开始采集」获取情报，或使用搜索框检索已有数据</div>
-                    </td></tr>
-                </tbody>
-            </table>
-        </div>
+        <div class="articles-list" id="articles-list"></div>
 
-        <!-- 分页 -->
         <div class="pagination" id="pagination"></div>
     </div>
 
     <script>
         let currentPage = 1;
-        const PAGE_SIZE = 50;
+        const PAGE_SIZE = 30;
         let eventSource = null;
         let liveCount = 0;
         let isLiveCrawl = false;
@@ -172,7 +157,6 @@
             const language = document.getElementById('search-language').value;
             const startDate = document.getElementById('search-start-date').value;
             const endDate = document.getElementById('search-end-date').value;
-
             if (keyword) params.set('keyword', keyword);
             if (language) params.set('language', language);
             if (startDate) params.set('start_date', startDate);
@@ -183,60 +167,67 @@
             try {
                 const resp = await fetch(`/api/intel?${params.toString()}`);
                 const data = await resp.json();
-                renderTable(data.results || []);
+                renderArticles(data.results || []);
                 renderPagination(data.total || 0, page);
             } catch (e) {
-                document.getElementById('table-body').innerHTML =
-                    '<tr><td colspan="6" class="empty-state"><div>搜索出错，请重试</div></td></tr>';
+                document.getElementById('articles-list').innerHTML =
+                    '<div class="empty-state"><div>搜索出错，请重试</div></div>';
             }
         }
 
-        function renderArticleRow(item) {
-            const title = (item.news_title || '(无标题)').substring(0, 80);
-            const time = item.publish_time || '';
-            const source = item.source_name || '';
+        function renderArticleCard(item) {
+            const title = escapeHtml(item.news_title || '(无标题)');
+            const cnTitle = escapeHtml(item.cn_title || '');
+            const summary = escapeHtml((item.content_summary || '').substring(0, 200));
+            const cnSummary = escapeHtml((item.cn_summary || '').substring(0, 200));
+            const time = escapeHtml(item.publish_time || '');
+            const source = escapeHtml(item.source_name || '');
             const lang = item.language || '';
             const langLabel = langLabels[lang] || lang;
-            const kw = item.keyword_hit || '';
-            const url = item.source_url || '#';
-            return `<tr style="animation: fadeIn 0.3s ease">
-                <td><strong>${escapeHtml(title)}</strong></td>
-                <td style="white-space:nowrap">${escapeHtml(time)}</td>
-                <td>${escapeHtml(source)}</td>
-                <td><span class="lang-tag lang-${lang}">${escapeHtml(langLabel)}</span></td>
-                <td>${kw ? `<span class="kw-tag">${escapeHtml(kw)}</span>` : '-'}</td>
-                <td><a class="source-link" href="${escapeHtml(url)}" target="_blank" rel="noopener">查看原文</a></td>
-            </tr>`;
+            const url = escapeHtml(item.source_url || '#');
+            const category = escapeHtml(item.site_category || '');
+
+            // 只有当翻译和原文不同时才显示中文标题
+            const showCnTitle = cnTitle && cnTitle !== title;
+            const showCnSummary = cnSummary && cnSummary !== summary;
+
+            return `<div class="article-card">
+                <div class="article-title-orig">${title}</div>
+                ${showCnTitle ? `<div class="article-title-cn">${cnTitle}</div>` : ''}
+                ${summary ? `<div class="article-summary">${summary}</div>` : ''}
+                ${showCnSummary ? `<div class="article-summary-cn">${cnSummary}</div>` : ''}
+                <div class="article-meta">
+                    <span class="site-label">${source}</span>
+                    ${category ? `<span>${category}</span>` : ''}
+                    <span>${time || '日期未知'}</span>
+                    <span class="lang-tag lang-${lang}">${langLabel}</span>
+                    <a class="source-link" href="${url}" target="_blank" rel="noopener">查看原文 →</a>
+                </div>
+            </div>`;
         }
 
-        function renderTable(results) {
-            const tbody = document.getElementById('table-body');
+        function renderArticles(results) {
+            const container = document.getElementById('articles-list');
             if (!results || results.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="icon">📭</div><div>无匹配数据 — 尝试其他关键词或先执行采集</div></td></tr>';
+                container.innerHTML = '<div class="empty-state"><div class="icon">📭</div><div>无匹配数据 — 尝试其他关键词或先执行采集</div></div>';
                 return;
             }
-            tbody.innerHTML = results.map(renderArticleRow).join('');
+            container.innerHTML = results.map(renderArticleCard).join('');
         }
 
         function prependArticle(item) {
-            const tbody = document.getElementById('table-body');
-            // 移除空状态行
-            const emptyRow = tbody.querySelector('.empty-state');
-            if (emptyRow) {
-                tbody.innerHTML = '';
-            }
-            tbody.insertAdjacentHTML('afterbegin', renderArticleRow(item));
-            // 限制显示 200 条防止 DOM 过大
-            while (tbody.children.length > 200) {
-                tbody.removeChild(tbody.lastChild);
+            const container = document.getElementById('articles-list');
+            const empty = container.querySelector('.empty-state');
+            if (empty) container.innerHTML = '';
+            container.insertAdjacentHTML('afterbegin', renderArticleCard(item));
+            while (container.children.length > 200) {
+                container.removeChild(container.lastChild);
             }
             liveCount++;
             document.getElementById('stat-total').textContent = parseInt(document.getElementById('stat-total').textContent || 0) + 1;
-            // 更新语种计数
-            const lang = item.language || '';
             const langMap = { mn: 'stat-mn', zh: 'stat-zh', en: 'stat-en' };
-            if (langMap[lang]) {
-                const el = document.getElementById(langMap[lang]);
+            if (langMap[item.language]) {
+                const el = document.getElementById(langMap[item.language]);
                 el.textContent = parseInt(el.textContent || 0) + 1;
             }
         }
@@ -257,7 +248,7 @@
 
         function escapeHtml(str) {
             const div = document.createElement('div');
-            div.textContent = str;
+            div.textContent = str || '';
             return div.innerHTML;
         }
 
@@ -277,31 +268,31 @@
             if (isLiveCrawl) return;
 
             const btn = document.getElementById('btn-crawl');
+            const stopBtn = document.getElementById('btn-stop');
             const progressBar = document.getElementById('progress-bar');
             const progressText = document.getElementById('progress-text');
 
             btn.disabled = true;
             btn.textContent = '采集中...';
+            stopBtn.classList.add('active');
             progressBar.classList.add('active');
             progressText.textContent = '正在连接...';
             liveCount = 0;
             isLiveCrawl = true;
 
-            // 清空表格，显示采集状态
-            const tbody = document.getElementById('table-body');
-            tbody.innerHTML = `<tr><td colspan="6" class="empty-state">
+            // 在顶部插入状态提示
+            const container = document.getElementById('articles-list');
+            container.innerHTML = `<div class="empty-state">
                 <div class="icon">⏳</div>
                 <div>实时采集中... 已获取 <strong id="live-counter">0</strong> 条情报</div>
-            </td></tr>`;
+            </div>`;
 
-            // 连接 SSE
             eventSource = new EventSource('/api/crawl/stream');
 
             eventSource.addEventListener('article', function(e) {
                 try {
                     const item = JSON.parse(e.data);
                     prependArticle(item);
-                    // 更新计数器
                     const counter = document.getElementById('live-counter');
                     if (counter) counter.textContent = liveCount;
                     progressText.textContent = `实时采集: 已获取 ${liveCount} 条情报`;
@@ -329,29 +320,31 @@
                 try {
                     const data = JSON.parse(e.data);
                     progressText.textContent = data.message || '采集出错';
-                } catch (err) {
-                    progressText.textContent = '采集连接中断';
-                }
+                } catch (err) {}
                 finishCrawl();
             });
 
             eventSource.onerror = function(e) {
-                // 如果已经完成(done事件)就不会走到这里
                 if (isLiveCrawl) {
-                    progressText.textContent = liveCount > 0 ? `采集中断，已获取 ${liveCount} 条` : '采集连接失败，请重试';
+                    progressText.textContent = liveCount > 0 ? `采集中断，已获取 ${liveCount} 条` : '连接失败';
                     finishCrawl();
                 }
             };
         }
 
+        function stopCrawl() {
+            fetch('/api/crawl/stop', { method: 'POST' });
+            if (eventSource) eventSource.close();
+            finishCrawl();
+            document.getElementById('progress-text').textContent = '采集已手动停止';
+        }
+
         function finishCrawl() {
             isLiveCrawl = false;
-            if (eventSource) {
-                eventSource.close();
-                eventSource = null;
-            }
+            if (eventSource) { eventSource.close(); eventSource = null; }
             document.getElementById('btn-crawl').disabled = false;
             document.getElementById('btn-crawl').textContent = '开始采集';
+            document.getElementById('btn-stop').classList.remove('active');
             setTimeout(() => {
                 document.getElementById('progress-bar').classList.remove('active');
                 loadStats();
@@ -367,8 +360,7 @@
                     document.getElementById('progress-bar').classList.add('active');
                     document.getElementById('progress-text').textContent = status.progress || '采集中...';
                     document.getElementById('btn-crawl').disabled = true;
-                    document.getElementById('btn-crawl').textContent = '采集中...';
-                    // 定期刷新统计
+                    document.getElementById('btn-stop').classList.add('active');
                     const interval = setInterval(async () => {
                         try {
                             const r = await fetch('/api/crawl/status');
@@ -376,11 +368,7 @@
                             document.getElementById('progress-text').textContent = s.progress || '';
                             if (!s.running) {
                                 clearInterval(interval);
-                                document.getElementById('progress-bar').classList.remove('active');
-                                document.getElementById('btn-crawl').disabled = false;
-                                document.getElementById('btn-crawl').textContent = '开始采集';
-                                isLiveCrawl = false;
-                                loadStats();
+                                finishCrawl();
                                 searchIntel();
                             }
                         } catch (e) { clearInterval(interval); }
