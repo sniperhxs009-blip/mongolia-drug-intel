@@ -67,9 +67,18 @@ def get_all_sites() -> list[dict]:
 
 
 def get_keywords_for_site(site: dict) -> list[str]:
+    """获取站点的全部搜索关键词（primary + secondary + combined_phrases）"""
     lang = site.get("language", "mn")
     kw = KEYWORDS_CONFIG["keywords"].get(lang, KEYWORDS_CONFIG["keywords"]["en"])
-    return kw["primary"] + kw["secondary"]
+    all_kw = list(kw.get("primary", [])) + list(kw.get("secondary", [])) + list(kw.get("combined_phrases", []))
+    # 去重并保持顺序
+    seen = set()
+    unique = []
+    for k in all_kw:
+        if k not in seen:
+            seen.add(k)
+            unique.append(k)
+    return unique
 
 
 class DailyRateLimiter:
@@ -252,7 +261,7 @@ class StreamingCrawlCoordinator:
         domain = urlparse(site_url).netloc
 
         # 1. 尝试搜索 URL
-        for template in site.get("search_urls", [])[:2]:
+        for template in site.get("search_urls", []):
             search_url = template.replace("{keyword}", keyword)
             async with self.semaphore:
                 await asyncio.sleep(get_delay())
@@ -297,7 +306,7 @@ class StreamingCrawlCoordinator:
             await self._progress(f"  {site_name}: 已达日上限，跳过")
             return []
 
-        keywords = get_keywords_for_site(site)[:5]
+        keywords = get_keywords_for_site(site)  # 全部关键词
         remaining = self.rate_limiter.get_remaining(site_name)
         articles = []
         seen_urls = set()

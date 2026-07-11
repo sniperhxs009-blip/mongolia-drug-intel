@@ -1,81 +1,51 @@
 """
-过滤模块 v3.0 - 严格模式
-必须同时满足：蒙古地理锚点 + 毒品相关关键词，两者缺一不可
+过滤模块 v3.1 - 从 keywords.json 动态加载全量关键词
+必须同时满足：蒙古地理锚点 + 毒品/缉毒相关关键词
 """
 
 import json
-import re
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_DIR = BASE_DIR / "config"
 
 with open(CONFIG_DIR / "keywords.json", "r", encoding="utf-8") as f:
-    KEYWORDS_CONFIG = json.load(f)
+    KW = json.load(f)
 
-# 蒙古地理锚点（必须命中至少一个）
-MONGOLIA_GEO_KEYWORDS = [
-    # 蒙古相关
-    "монгол", "Mongolia", "Mongol", "Монгол",
-    "蒙古", "乌兰巴托", "Ulaanbaatar", "Улаанбаатар",
-    # 中蒙口岸
-    "扎门乌德", "Zamyn-Uud", "Замын-Үүд",
-    "甘其毛都", "Ganqimaodao", "Ганцмод",
-    "二连浩特", "Erenhot", "Эрээн",
-    "策克", "Ceke",
-    "满都拉", "Mandula", "Мандал",
-    # 蒙古省份/城市
-    "达尔汗", "Darkhan", "Дархан",
-    "额尔登特", "Erdenet", "Эрдэнэт",
-    "乔巴山", "Choibalsan", "Чойбалсан",
-    "科布多", "Khovd", "Ховд",
-    "巴彦洪戈尔", "Bayankhongor",
-    # 边境相关
-    "中蒙边境", "中蒙口岸",
-    "Mongolia-China border",
-    "хилийн", "хил",  # 蒙古语：边境
-]
+# 蒙古地理锚点（从 JSON 动态加载）
+GEO_ANCHORS = []
+geo_data = KW.get("geo_anchors", {})
+for group in geo_data.values():
+    if isinstance(group, list):
+        GEO_ANCHORS.extend(group)
 
-# 毒品相关关键词（必须命中至少一个）
-DRUG_KEYWORDS = [
-    # 中文毒品词
-    "毒品", "缉毒", "禁毒", "贩毒", "涉毒", "吸毒", "戒毒",
-    "芬太尼", "fentanyl", "фентанил",
-    "冰毒", "methamphetamine", "метамфетамин",
-    "海洛因", "heroin", "героин",
-    "可卡因", "cocaine", "кокаин",
-    "大麻", "cannabis", "marijuana", "хар тамхи", "марихуана",
-    "鸦片", "opium", "опиум",
-    "摇头丸", "ecstasy",
-    "麻古", "麻果",
-    "氯胺酮", "ketamine", "кетамин",
-    "合成毒品", "synthetic drug", "синтетик",
-    "易制毒", "precursor chemical",
-    "精神药品", "psychotropic",
-    "管制药品", "controlled substance",
-    "麻醉药品", "narcotic", "наркотик",
-    # 蒙语毒品词
-    "мансууруулах", "мансууруулагч", "мансуур",
-    "баривчилгаа",  # 查获（毒品语境）
-    "хураан",  # 收缴
-    # 英文毒品词
-    "drug seizure", "drug trafficking", "drug smuggling",
-    "narcotics", "narco",
-    "opioid", "опиоид",
-    "rehabilitation",  # 戒毒
-    "drug law", "drug policy",
-    "substance abuse",
-    # 走私+毒品
-    "走私毒品", "跨境毒品", "drug bust",
-    "drug arrest", "drug raid",
-    "drug enforcement",
-    # 口岸查获（毒品语境需要配合蒙古地理词）
-    "хил", "гааль",
-]
+# 毒品关键词（从 JSON 的 drug_keywords_full 加载所有语种）
+DRUG_KEYWORDS = []
+drug_data = KW.get("drug_keywords_full", {})
+for lang_words in drug_data.values():
+    if isinstance(lang_words, list):
+        DRUG_KEYWORDS.extend(lang_words)
+
+# 也加入各语种 primary + secondary 以及分类中的词
+for lang, lang_data in KW.get("keywords", {}).items():
+    for key in ("primary", "secondary"):
+        words = lang_data.get(key, [])
+        if isinstance(words, list):
+            DRUG_KEYWORDS.extend(words)
+    for cat_name, cat_data in lang_data.get("categories", {}).items():
+        words = cat_data.get("words", [])
+        if isinstance(words, list):
+            DRUG_KEYWORDS.extend(words)
+    combined = lang_data.get("combined_phrases", [])
+    if isinstance(combined, list):
+        DRUG_KEYWORDS.extend(combined)
+
+# 去重
+GEO_ANCHORS = list(set(g.lower() for g in GEO_ANCHORS if g.strip()))
+DRUG_KEYWORDS = list(set(d.lower() for d in DRUG_KEYWORDS if d.strip()))
 
 
-def _text_contains_any(text: str, keywords: list[str]) -> bool:
-    """检查文本是否包含任意关键词（不区分大小写）"""
+def _contains_any(text: str, keywords: list[str]) -> bool:
     text_lower = text.lower()
     for kw in keywords:
         if kw.lower() in text_lower:
@@ -85,18 +55,18 @@ def _text_contains_any(text: str, keywords: list[str]) -> bool:
 
 def strict_filter(item: dict) -> bool:
     """
-    严格过滤：必须同时满足两个条件
-    1. 包含蒙古地理锚点
-    2. 包含毒品相关关键词
+    严格过滤：必须同时满足
+    1. 命中蒙古地理锚点
+    2. 命中毒品/缉毒关键词
     """
-    text = f"{item.get('news_title', '')} {item.get('content_summary', '')} {item.get('source_name', '')}"
+    text = f"{item.get('news_title', '')} {item.get('content_summary', '')} {item.get('source_name', '')} {item.get('site_category', '')}"
     if not text.strip():
         return False
 
-    has_mongolia_geo = _text_contains_any(text, MONGOLIA_GEO_KEYWORDS)
-    has_drug_keyword = _text_contains_any(text, DRUG_KEYWORDS)
+    has_geo = _contains_any(text, GEO_ANCHORS)
+    has_drug = _contains_any(text, DRUG_KEYWORDS)
 
-    return has_mongolia_geo and has_drug_keyword
+    return has_geo and has_drug
 
 
 # 兼容旧接口
@@ -113,8 +83,7 @@ def is_pure_inland_china_irrelevant(item: dict) -> bool:
 
 
 def apply_filters(items: list[dict]) -> tuple[list[dict], int]:
-    kept = []
-    filtered = 0
+    kept, filtered = [], 0
     for item in items:
         if strict_filter(item):
             kept.append(item)

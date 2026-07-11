@@ -2,98 +2,270 @@
   "keywords": {
     "mn": {
       "language": "蒙古语",
+      "categories": {
+        "drug_types": {
+          "label": "毒品统称&具体品类",
+          "words": [
+            "мансууруулах бодис", "хар тамхи", "фентанил",
+            "синтетик мансууруулах бодис", "метамфетамин", "экстази",
+            "опиум", "героин", "аннака", "сэтгэц нөлөөт эм", "наркотик"
+          ]
+        },
+        "enforcement": {
+          "label": "缉毒查获执法动作",
+          "words": [
+            "баривчилгаа", "хураан авах", "хулгайлах", "мөрдөн байцаалт",
+            "барих", "баригдсан", "шүүх", "торгууль", "хорих", "хяналт", "шалгалт"
+          ]
+        },
+        "geo_border": {
+          "label": "口岸边境跨境地理",
+          "words": [
+            "хил", "гааль", "Замын-Үүд", "Гашуун Сухайт", "Цэк",
+            "хилийн боомт", "хилийн худалдаа", "транзит"
+          ]
+        },
+        "agencies": {
+          "label": "禁毒机构相关",
+          "words": [
+            "цагдаагийн газар", "мансууруулах эсэргүүцэх алба", "гаалийн газар",
+            "эрүүл мэндийн хяналт", "прокурор", "аюулгүй байдлын газар", "сэргээх төв"
+          ]
+        },
+        "rehab": {
+          "label": "吸毒戒毒管控",
+          "words": [
+            "мансууруулах донтолт", "донтсон хүн", "сайн дурын сэргээх",
+            "албадлагын сэргээх", "мансууруулах урьдчилан сэргийлэх", "эмчилгээ"
+          ]
+        }
+      },
+      "combined_phrases": [
+        "Замын-Үүд мансууруулах баривчилгаа",
+        "хилийн гааль мансууруулах шалгалт",
+        "фентанил хулгайлах Монгол"
+      ],
       "primary": [
-        "мансууруулах",
-        "баривчилгаа",
-        "хил",
-        "фентанил",
-        "хураан",
-        "хар тамхи",
-        "гааль"
+        "мансууруулах", "баривчилгаа", "хил", "фентанил",
+        "хураан", "хар тамхи", "гааль", "хулгайлах"
       ],
       "secondary": [
-        "мансууруулах бодис",
-        "хууль бус",
-        "худалдаа",
-        "эрүүгийн",
-        "шалгалт",
-        "хорих",
-        "хууль сахиулах",
-        "илрүүлэх",
-        "хилийн боомт",
-        "хууль бус эргэлт"
-      ]
-    },
-    "en": {
-      "language": "英语",
-      "primary": [
-        "Mongolia drug seizure",
-        "cross-border trafficking",
-        "fentanyl",
-        "synthetic drugs",
-        "Zamyn-Uud port narcotics",
-        "drug law",
-        "rehabilitation"
-      ],
-      "secondary": [
-        "Mongolia narcotics",
-        "drug smuggling Mongolia",
-        "opioid Mongolia",
-        "methamphetamine Mongolia",
-        "cannabis Mongolia",
-        "drug arrest Mongolia",
-        "border control drugs",
-        "UNODC Mongolia drugs",
-        "substance abuse Mongolia",
-        "drug policy Mongolia"
+        "мансууруулах бодис", "Замын-Үүд", "наркотик",
+        "метамфетамин", "героин", "опиум", "экстази",
+        "аннака", "сэтгэц нөлөөт эм", "барих", "баригдсан",
+        "шүүх", "хорих", "хяналт", "шалгалт",
+        "цагдаа", "прокурор", "сэргээх төв",
+        "мансууруулах донтолт", "донтсон хүн",
+        "Гашуун Сухайт", "Цэк", "хилийн боомт"
       ]
     },
     "zh": {
       "language": "中文",
+      "categories": {
+        "drug_types": {
+          "label": "毒品品类",
+          "words": [
+            "芬太尼", "冰毒", "海洛因", "鸦片", "大麻", "摇头丸",
+            "合成毒品", "安纳咖", "精神药品", "麻醉药品", "依托咪酯",
+            "新精神活性物质", "甲基苯丙胺", "可卡因", "氯胺酮", "麻古"
+          ]
+        },
+        "enforcement": {
+          "label": "缉毒执法动作",
+          "words": [
+            "缉毒", "查获", "缴获", "抓捕", "捣毁团伙", "跨境走私",
+            "贩毒", "运毒", "藏毒", "查验", "堵截", "溯源", "联合办案",
+            "专案侦查", "禁毒专项", "扫毒", "清剿"
+          ]
+        },
+        "geo_border": {
+          "label": "中蒙口岸地理",
+          "words": [
+            "蒙古国", "扎门乌德", "甘其毛都", "策克", "二连浩特",
+            "中蒙边境", "陆路口岸", "乌兰巴托", "蒙古国首都", "蒙俄边境",
+            "满都拉", "珠恩嘎达布其", "阿尔山"
+          ]
+        },
+        "agencies": {
+          "label": "机构名称关键词",
+          "words": [
+            "蒙古缉毒局", "蒙古海关", "蒙古国药监局", "蒙古国家安全总局",
+            "联合国毒罪办", "国家禁毒办", "内蒙古禁毒总队", "国际刑警组织蒙古局",
+            "蒙古国总检察院", "蒙古国司法部", "中国禁毒网", "中新网"
+          ]
+        },
+        "rehab": {
+          "label": "禁毒管控类",
+          "words": [
+            "戒毒", "禁毒普法", "吸毒矫治", "禁毒法案", "毒品犯罪",
+            "涉毒案件", "制毒窝点", "物流涉毒", "旅检毒品查验",
+            "强制隔离戒毒", "社区戒毒", "自愿戒毒"
+          ]
+        }
+      },
+      "combined_phrases": [
+        "扎门乌德 毒品查获",
+        "甘其毛都 跨境贩毒",
+        "蒙古国 缉毒专项",
+        "中蒙口岸 安纳咖走私",
+        "蒙古国 禁毒",
+        "中蒙边境 毒品",
+        "乌兰巴托 缉毒"
+      ],
       "primary": [
-        "蒙古国缉毒",
-        "中蒙口岸贩毒",
-        "扎门乌德",
-        "甘其毛都",
-        "跨境走私",
-        "芬太尼",
-        "冰毒",
-        "禁毒专项",
-        "戒毒矫治"
+        "蒙古国缉毒", "中蒙口岸贩毒", "扎门乌德", "甘其毛都",
+        "跨境走私", "芬太尼", "冰毒", "禁毒专项", "戒毒矫治",
+        "蒙古国 毒品", "蒙古 缉毒"
       ],
       "secondary": [
-        "蒙古毒品",
-        "口岸查获",
-        "海关缉私",
-        "跨国贩毒",
-        "内蒙古禁毒",
-        "中蒙边境",
-        "禁毒合作",
-        "毒品走私",
-        "合成毒品",
-        "易制毒化学品"
+        "蒙古毒品", "口岸查获", "海关缉私", "跨国贩毒",
+        "内蒙古禁毒", "中蒙边境", "禁毒合作", "毒品走私",
+        "合成毒品", "易制毒化学品", "安纳咖", "海洛因",
+        "乌兰巴托", "二连浩特", "策克口岸",
+        "蒙古国海关", "蒙古缉毒", "贩毒团伙",
+        "涉毒", "吸毒", "禁毒宣传", "禁毒法案"
+      ]
+    },
+    "en": {
+      "language": "英语",
+      "categories": {
+        "drug_types": {
+          "label": "毒品品类",
+          "words": [
+            "narcotics", "drugs", "fentanyl", "methamphetamine", "heroin",
+            "opium", "cannabis", "ecstasy", "synthetic drugs",
+            "psychotropic substances", "anaga", "cocaine", "ketamine"
+          ]
+        },
+        "enforcement": {
+          "label": "执法查获类",
+          "words": [
+            "seizure", "arrest", "smuggling", "trafficking", "drug bust",
+            "crackdown", "investigation", "prosecution", "confiscate",
+            "intercept", "law enforcement", "drug raid", "criminal"
+          ]
+        },
+        "geo_border": {
+          "label": "口岸跨境地理",
+          "words": [
+            "Mongolia", "Mongolian border", "Zamyn-Uud port",
+            "Gashuunsukhait port", "Ceke port", "cross-border",
+            "land port", "transit trafficking", "Ulaanbaatar",
+            "Mongolian", "Ulan Bator"
+          ]
+        },
+        "agencies": {
+          "label": "官方机构",
+          "words": [
+            "Narcotics Police Mongolia", "Customs Authority Mongolia",
+            "MMRA", "UNODC Mongolia", "Procuratorate",
+            "National Security Authority", "INTERPOL",
+            "International Criminal Police Organization", "UNODC"
+          ]
+        },
+        "rehab": {
+          "label": "戒毒与防控",
+          "words": [
+            "drug addiction", "rehabilitation center", "voluntary detox",
+            "mandatory detox", "drug prevention", "anti-narcotics policy",
+            "substance abuse", "drug law", "drug policy"
+          ]
+        }
+      },
+      "combined_phrases": [
+        "Mongolia fentanyl seizure",
+        "Zamyn-Uud drug smuggling",
+        "cross-border narcotics Mongolia",
+        "Mongolia drug trafficking",
+        "Mongolia narcotics arrest",
+        "Mongolian border drug bust"
+      ],
+      "primary": [
+        "Mongolia drug seizure", "cross-border trafficking",
+        "fentanyl", "synthetic drugs", "Zamyn-Uud port narcotics",
+        "drug law", "rehabilitation", "Mongolia narcotics"
+      ],
+      "secondary": [
+        "drug smuggling Mongolia", "opioid Mongolia",
+        "methamphetamine Mongolia", "cannabis Mongolia",
+        "drug arrest Mongolia", "border control drugs",
+        "UNODC Mongolia drugs", "substance abuse Mongolia",
+        "drug policy Mongolia", "INTERPOL Mongolia drugs",
+        "Mongolia customs drugs", "Mongolia police narcotics",
+        "Gashuunsukhait drug", "Ceke port drug",
+        "Ulaanbaatar drug", "Mongolian drug enforcement"
       ]
     }
   },
-  "weak_keywords": {
-    "note": "弱执法词汇+蒙古地理锚点即可入库，无需强制匹配强毒品词",
-    "geo_anchors": [
-      "蒙古", "Mongolia", "Монгол",
-      "扎门乌德", "Zamyn-Uud", "Замын-Үүд",
-      "甘其毛都", "Ganqimaodao",
-      "乌兰巴托", "Ulaanbaatar", "Улаанбаатар",
-      "二连浩特", "Erenhot",
-      "策克", "Ceke",
-      "满都拉", "Mandula"
+  "geo_anchors": {
+    "note": "蒙古地理锚点，所有情报必须命中至少一个",
+    "mongolia_core": [
+      "монгол", "Mongolia", "Mongolian", "Mongol", "Монгол",
+      "蒙古", "乌兰巴托", "Ulaanbaatar", "Ulan Bator", "Улаанбаатар",
+      "蒙古国首都", "蒙俄边境"
     ],
-    "weak_action_keywords": [
-      "口岸", "port", "боомт",
-      "海关", "customs", "гааль",
-      "查获", "seizure", "баривчилгаа",
-      "走私", "smuggling",
-      "跨境", "cross-border",
-      "边防", "border",
-      "检验", "inspection"
+    "border_ports": [
+      "扎门乌德", "Zamyn-Uud", "Замын-Үүд",
+      "甘其毛都", "Ganqimaodao", "Gashuunsukhait", "Гашуун Сухайт",
+      "二连浩特", "Erenhot", "Эрээн",
+      "策克", "Ceke", "Цэк",
+      "满都拉", "Mandula", "Мандал",
+      "珠恩嘎达布其", "阿尔山",
+      "中蒙边境", "中蒙口岸", "陆路口岸",
+      "Mongolia-China border", "хилийн", "хил", "гааль"
+    ],
+    "mongolia_cities": [
+      "达尔汗", "Darkhan", "Дархан",
+      "额尔登特", "Erdenet", "Эрдэнэт",
+      "乔巴山", "Choibalsan", "Чойбалсан",
+      "科布多", "Khovd", "Ховд",
+      "巴彦洪戈尔", "Bayankhongor"
+    ]
+  },
+  "drug_keywords_full": {
+    "note": "所有毒品/缉毒/禁毒相关关键词的并集，供过滤模块使用",
+    "zh": [
+      "毒品", "缉毒", "禁毒", "贩毒", "涉毒", "吸毒", "戒毒", "扫毒",
+      "芬太尼", "冰毒", "海洛因", "鸦片", "大麻", "摇头丸", "可卡因",
+      "合成毒品", "安纳咖", "精神药品", "麻醉药品", "依托咪酯",
+      "新精神活性物质", "甲基苯丙胺", "氯胺酮", "麻古",
+      "查获", "缴获", "抓捕", "捣毁", "走私", "贩毒", "运毒", "藏毒",
+      "跨境走私", "禁毒专项", "毒品犯罪", "涉毒案件", "制毒窝点",
+      "物流涉毒", "旅检毒品", "强制隔离戒毒", "社区戒毒", "自愿戒毒",
+      "禁毒法案", "禁毒普法", "吸毒矫治", "禁毒宣传",
+      "毒瘾", "吸毒人员", "制毒", "戒毒所", "戒毒治疗",
+      "易制毒化学品", "管制药品", "精神管制", "麻黃素"
+    ],
+    "mn": [
+      "мансууруулах", "мансууруулагч", "мансуур",
+      "баривчилгаа", "хураан", "хулгайлах",
+      "наркотик", "фентанил", "метамфетамин", "героин",
+      "опиум", "экстази", "аннака",
+      "хар тамхи", "сэтгэц нөлөөт эм",
+      "мөрдөн байцаалт", "барих", "баригдсан", "шүүх",
+      "торгууль", "хорих", "хяналт", "шалгалт",
+      "мансууруулах донтолт", "донтсон хүн",
+      "сэргээх төв", "сэргээх",
+      "цагдаа", "прокурор",
+      "мансууруулах эсэргүүцэх алба",
+      "мансууруулах урьдчилан сэргийлэх",
+      "эмчилгээ"
+    ],
+    "en": [
+      "narcotics", "narcotic", "narco",
+      "drug", "drugs",
+      "fentanyl", "methamphetamine", "heroin", "opium",
+      "cannabis", "marijuana", "ecstasy", "cocaine", "ketamine",
+      "synthetic drug", "psychotropic", "anaga",
+      "seizure", "confiscate", "arrest",
+      "smuggling", "trafficking", "drug bust",
+      "crackdown", "investigation", "prosecution",
+      "intercept", "law enforcement",
+      "drug addiction", "rehabilitation", "detox",
+      "substance abuse", "drug prevention",
+      "anti-narcotics", "drug policy", "drug law",
+      "opioid", "controlled substance",
+      "precursor chemical"
     ]
   }
 }
