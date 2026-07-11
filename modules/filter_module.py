@@ -105,6 +105,16 @@ _DEFAULT_WEAK_DRUG = [
     "controlled substance", "psychotropic",
 ]
 
+_DEFAULT_SUPPORTING_DRUG = [
+    "rehabilitation", "rehab", "addiction", "addict", "detox",
+    "treatment center", "treatment programme", "treatment program",
+    "drug abuse", "substance abuse", "drug dependence", "drug dependent",
+    "needle exchange", "harm reduction", "overdose",
+    "сэргээх", "донтолт", "донтсон", "эмчилгээ",
+    "戒毒", "康复治疗", "吸毒矫治", "社区戒毒", "自愿戒毒",
+    "强制隔离戒毒", "禁毒宣传", "戒毒所", "戒毒治疗",
+]
+
 _DEFAULT_GEO_ANCHORS = [
     "монгол", "mongolia", "mongolian", "mongol", "монгол",
     "蒙古", "乌兰巴托", "ulaanbaatar", "ulan bator", "улаанбаатар",
@@ -125,7 +135,7 @@ def _load_keywords():
             kw = json.load(f)
     except Exception:
         log.warning("keywords.json 加载失败，使用硬编码默认值")
-        return _DEFAULT_STRONG_DRUG, _DEFAULT_ENFORCEMENT, _DEFAULT_EXCLUSION, _DEFAULT_WEAK_DRUG, _DEFAULT_GEO_ANCHORS
+        return _DEFAULT_STRONG_DRUG, _DEFAULT_ENFORCEMENT, _DEFAULT_EXCLUSION, _DEFAULT_WEAK_DRUG, _DEFAULT_GEO_ANCHORS, _DEFAULT_SUPPORTING_DRUG
 
     fk = kw.get("filter_keywords", {})
 
@@ -165,6 +175,15 @@ def _load_keywords():
     if not weak:
         weak = _DEFAULT_WEAK_DRUG
 
+    # 加载毒品上下文词（康复/治疗/成瘾等）
+    supporting = []
+    supd = fk.get("supporting_drug_words", {})
+    for lang_list in supd.values():
+        if isinstance(lang_list, list):
+            supporting.extend(lang_list)
+    if not supporting:
+        supporting = _DEFAULT_SUPPORTING_DRUG
+
     # 加载地理锚点
     geo = []
     gd = kw.get("geo_anchors", {})
@@ -175,13 +194,13 @@ def _load_keywords():
         geo = _DEFAULT_GEO_ANCHORS
     geo = list(set(g.lower() for g in geo if g.strip()))
 
-    log.info("关键词动态加载完成: 强毒品=%d 执法=%d 排除=%d 弱药=%d 地理=%d",
-             len(strong), len(enforcement), len(exclusion), len(weak), len(geo))
-    return strong, enforcement, exclusion, weak, geo
+    log.info("关键词动态加载完成: 强毒品=%d 执法=%d 排除=%d 弱药=%d 上下文=%d 地理=%d",
+             len(strong), len(enforcement), len(exclusion), len(weak), len(supporting), len(geo))
+    return strong, enforcement, exclusion, weak, geo, supporting
 
 
 # 模块加载时初始化
-STRONG_DRUG_WORDS, ENFORCEMENT_WORDS, EXCLUSION_WORDS, WEAK_DRUG_WORDS, GEO_ANCHORS = _load_keywords()
+STRONG_DRUG_WORDS, ENFORCEMENT_WORDS, EXCLUSION_WORDS, WEAK_DRUG_WORDS, GEO_ANCHORS, SUPPORTING_DRUG_WORDS = _load_keywords()
 
 # 排除词覆盖阈值：命中 ≥ 此数量的强毒品词时不拦截排除词
 EXCLUSION_OVERRIDE_THRESHOLD = 2
@@ -237,6 +256,11 @@ def ai_classify(item: dict) -> dict:
     enforcement_hits = [kw for kw in ENFORCEMENT_WORDS if kw.lower() in text.lower()]
     enforcement_score = len(enforcement_hits) * 2
 
+    # === 第3.5步：毒品上下文词评分（康复/治疗/成瘾等） ===
+    supporting_hits = [kw for kw in SUPPORTING_DRUG_WORDS if kw.lower() in text.lower()]
+    supporting_score = len(supporting_hits) * 2
+    has_drug_context = bool(supporting_hits)
+
     # === 第4步：弱药字检查 ===
     weak_hits_list = [kw for kw in WEAK_DRUG_WORDS if kw.lower() in text.lower()]
     has_weak_drug = len(weak_hits_list) > 0
@@ -245,12 +269,13 @@ def ai_classify(item: dict) -> dict:
     geo_hits = [kw for kw in GEO_ANCHORS if kw.lower() in text.lower()]
     geo_score = len(geo_hits) * 1
 
-    total_score = strong_score + enforcement_score + geo_score
+    total_score = strong_score + enforcement_score + supporting_score + geo_score
 
     # 组装命中详情
     hit_detail = {
         "strong": strong_hits[:5],
         "enforcement": enforcement_hits[:5],
+        "supporting": supporting_hits[:3],
         "weak": weak_hits_list[:3],
         "geo": geo_hits[:5],
         "exclusion_override": len(exclusion_hits) > 0 and len(strong_hits) >= EXCLUSION_OVERRIDE_THRESHOLD,
@@ -284,15 +309,20 @@ def ai_classify(item: dict) -> dict:
         log.info("FILTER-PASS | 药+强执法+地理 | 执法=%s 得分=%d | %s", enforcement_hits[:2], total_score, url[:80])
         return {"pass": True, "score": total_score, "reason": f"药字+强执法+地理: {enforcement_hits[:2]}", "hits": hit_detail}
 
-    # 情况D：弱药字但无执法也无地理 → 拒绝
+    # 情况D：弱药字 + 毒品上下文词（康复/治疗/成瘾）+ 地理 → 通过
+    if has_weak_drug and has_drug_context and geo_hits:
+        log.info("FILTER-PASS | 药+上下文+地理 | 上下文=%s 得分=%d | %s", supporting_hits[:2], total_score, url[:80])
+        return {"pass": True, "score": total_score, "reason": f"药字+毒品上下文+地理: {supporting_hits[:2]}", "hits": hit_detail}
+
+    # 情况E：弱药字但无执法也无地理 → 拒绝（纯医药内容）
     if has_weak_drug and not enforcement_hits and not geo_hits:
         log.debug("FILTER-REJECT | 纯医药 | %s", url[:80])
         return {"pass": False, "score": total_score, "reason": "纯医药词汇无执法/地理上下文", "hits": hit_detail}
 
-    # 情况E：弱药字 + 地理 但无执法 → 拒绝
-    if has_weak_drug and geo_hits and not enforcement_hits:
+    # 情况F：弱药字 + 地理 但无执法也无上下文 → 医药监管页面，拒绝
+    if has_weak_drug and geo_hits and not enforcement_hits and not has_drug_context:
         log.debug("FILTER-REJECT | 医药+地理无执法 | %s", url[:80])
-        return {"pass": False, "score": total_score, "reason": "医药词汇+地理但无执法动作", "hits": hit_detail}
+        return {"pass": False, "score": total_score, "reason": "医药词汇+地理但无毒品上下文", "hits": hit_detail}
 
     log.debug("FILTER-REJECT | 评分不足(%d) | %s", total_score, url[:80])
     return {"pass": False, "score": total_score, "reason": f"评分不足 ({total_score})", "hits": hit_detail}

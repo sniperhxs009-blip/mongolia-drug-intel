@@ -324,6 +324,24 @@
         "substance", "substances",
         "controlled substance", "psychotropic"
       ]
+    },
+    "supporting_drug_words": {
+      "note": "毒品上下文词：康复/治疗/成瘾等，表示文章涉毒但非执法角度",
+      "mn": [
+        "сэргээх", "донтолт", "донтсон", "эмчилгээ",
+        "мансууруулах донтолт", "сэргээх төв", "донтсон хүн"
+      ],
+      "zh": [
+        "戒毒", "康复治疗", "吸毒矫治", "社区戒毒", "自愿戒毒",
+        "强制隔离戒毒", "禁毒宣传", "戒毒所", "戒毒治疗", "毒瘾",
+        "吸毒人员", "禁毒普法", "禁毒法案"
+      ],
+      "en": [
+        "rehabilitation", "rehab", "addiction", "addict", "detox",
+        "treatment center", "treatment programme", "treatment program",
+        "drug abuse", "substance abuse", "drug dependence", "drug dependent",
+        "needle exchange", "harm reduction", "overdose"
+      ]
     }
   },
   "drug_keywords_full": {
