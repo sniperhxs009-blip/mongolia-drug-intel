@@ -257,14 +257,40 @@ def date_filter(item: dict, max_days: int = 30) -> bool:
 
 
 # ============================================================
-# 对外接口
+# AI 优先过滤（DeepSeek 为主，规则引擎为 fallback）
 # ============================================================
 
+_ai_available = True
+
+
+def _check_with_ai(item: dict) -> dict:
+    """使用 DeepSeek AI 进行智能分类"""
+    global _ai_available
+    if not _ai_available:
+        return ai_classify(item)
+
+    try:
+        from modules.ai_classifier import classify_article
+        result = classify_article(item)
+        if result.get("ai_model") == "none":
+            # API 调用失败，回退规则引擎
+            _ai_available = False
+            return ai_classify(item)
+        return {
+            "pass": result.get("is_relevant", False),
+            "score": int(result.get("confidence", 0) * 10),
+            "reason": f"DeepSeek: {result.get('reason', '')}",
+        }
+    except Exception:
+        _ai_available = False
+        return ai_classify(item)
+
+
 def strict_filter(item: dict) -> bool:
-    """AI 智能过滤：分类通过 + 日期在 30 天内"""
+    """AI 智能过滤：日期 30 天内 + DeepSeek AI 分类"""
     if not date_filter(item, max_days=30):
         return False
-    result = ai_classify(item)
+    result = _check_with_ai(item)
     return result["pass"]
 
 
