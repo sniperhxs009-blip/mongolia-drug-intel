@@ -1,17 +1,20 @@
 """
-AI 智能过滤模块 v4.0
+AI 智能过滤模块 v5.0
 ====================
-规则引擎模拟 AI 分类：区分毒品执法/走私/查获新闻 vs 普通医药监管网页。
+规则引擎 + DeepSeek AI 双重分类：区分毒品执法/走私/查获新闻 vs 普通新闻。
 
 核心逻辑：
-  - 强毒品词（наркотик/мансууруулах/фентанил/毒品/heroin 等）→ 高置信度通过
-  - 弱药字（эм/эмийн/drug/药品）→ 必须伴随执法动作词才通过
+  - 硬性门禁：必须命中至少 1 个强毒品词或弱药字，否则一律拒绝
+  - 强毒品词（наркотик/мансууруулах/фентанил/毒品/heroin 等）→ 直接通过
+  - 弱药字（эм/эмийн/drug/药品）→ 必须伴随执法动作词 + 地理锚点才通过
   - 排除词（副作用/疫苗/伦理投诉/注册/质量检测 等）→ 直接拒绝
+  - DeepSeek AI 优先，失败后 5 分钟冷却自动重试
   - 30 日内日期过滤
 """
 
 import json
 import re
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -45,21 +48,22 @@ STRONG_DRUG_WORDS = [
     "мансууруулах бодис", "мансууруулах донтолт",
     "мансууруулах эсэргүүцэх", "мансууруулах урьдчилан сэргийлэх",
     "сэргээх төв",
-    "мансууруулах бодисын",
+    "мансууруулах бодисын", "мансууруулах бодисын наймаа",
+    "мансууруулах бодис худалдаалах", "хар тамхины наймаа",
 
     # === 中文：明确的毒品词汇 ===
     "毒品", "缉毒", "禁毒", "贩毒", "涉毒", "吸毒", "戒毒", "扫毒", "肃毒",
     "芬太尼", "冰毒", "海洛因", "鸦片", "大麻", "摇头丸", "可卡因",
     "合成毒品", "安纳咖", "甲基苯丙胺", "氯胺酮",
     "贩运毒品", "走私毒品", "毒品走私", "跨境贩毒",
-    "制毒", "吸毒人员", "毒瘾", "戒毒所",
+    "制毒", "吸毒人员", "毒瘾", "戒毒所", "毒贩",
     "缉毒专项", "禁毒专项", "扫毒行动",
 
     # === 英文：明确的毒品/缉毒词汇 ===
-    "narcotics", "narco", "fentanyl", "heroin", "cocaine",
+    "narcotics", "narco", "narcotic", "fentanyl", "heroin", "cocaine",
     "methamphetamine", "meth", "opium", "ecstasy", "ketamine",
     "drug trafficking", "drug smuggling", "drug bust", "drug seizure",
-    "drug enforcement", "drug raid", "drug arrest",
+    "drug enforcement", "drug raid", "drug arrest", "drug lord", "drug dealer",
     "anti-narcotics", "drug cartel",
     "smuggling of narcotics", "narcotics control",
 ]
@@ -68,21 +72,20 @@ STRONG_DRUG_WORDS = [
 # 执法/犯罪/口岸缉私 上下文词（必须搭配弱药字才通过）
 # ============================================================
 ENFORCEMENT_WORDS = [
-    # 蒙语
+    # 蒙语（仅保留具体缉毒执法动作词，不含泛化政务词）
     "баривчилгаа", "хураан", "хулгайлах", "мөрдөн байцаалт",
     "барих", "баригдсан", "шүүх", "хорих", "торгууль",
     "цагдаа", "прокурор", "аюулгүй байдлын газар",
     "хил", "гааль", "хилийн боомт",
-    "хяналт", "шалгалт", "илрүүлэх", "нууц",
-    # 中文
+    "илрүүлэх", "нууц",
+    # 中文（仅保留具体毒品缉私动作词）
     "查获", "缴获", "抓捕", "捣毁", "走私", "贩运",
-    "跨境", "边防", "口岸", "海关", "缉私", "查验",
-    "刑侦", "专案", "联合办案", "堵截",
-    "毒品犯罪", "涉毒案件", "制毒窝点",
+    "缉私", "刑侦", "专案", "联合办案", "堵截",
+    "毒品犯罪", "涉毒案件", "制毒窝点", "贩毒团伙",
     # 英文
     "seizure", "arrest", "smuggling", "trafficking", "bust",
     "crackdown", "investigation", "prosecution", "confiscate",
-    "intercept", "police", "customs", "border",
+    "intercept", "police",
     "criminal", "crime", "prison", "court", "sentence",
     "enforcement", "raid", "operation", "sting",
 ]
@@ -198,17 +201,19 @@ def ai_classify(item: dict) -> dict:
     geo_score = len(geo_hits) * 1
 
     # === 第6步：综合判定 ===
+    # 硬性门禁：必须命中至少 1 个强毒品词或 1 个弱药字，否则一律拒绝
+    has_any_drug_word = bool(strong_hits) or has_weak_drug
+    if not has_any_drug_word:
+        return {"pass": False, "score": total_score, "reason": "无任何毒品/药物相关关键词"}
+
     total_score = strong_score + enforcement_score + geo_score
 
     # 情况A：有强毒品词 → 直接通过
     if strong_hits:
-        # 强毒品词 + 地理锚点 = 极高置信度
         if geo_hits:
             return {"pass": True, "score": total_score, "reason": f"强毒品词+地理: {strong_hits[:2]}"}
-        # 强毒品词 + 执法 = 高置信度
         if enforcement_hits:
             return {"pass": True, "score": total_score, "reason": f"强毒品词+执法: {strong_hits[:2]}"}
-        # 仅有强毒品词但没有蒙古地理也没有执法上下文 → 降低门槛，但仍通过
         return {"pass": True, "score": total_score, "reason": f"强毒品词: {strong_hits[:2]}"}
 
     # 情况B：弱药字 + 执法上下文 + 地理锚点 → 通过
@@ -219,23 +224,16 @@ def ai_classify(item: dict) -> dict:
     if has_weak_drug and len(enforcement_hits) >= 2 and geo_hits:
         return {"pass": True, "score": total_score, "reason": f"药字+强执法+地理: {enforcement_hits[:2]}"}
 
-    # 情况D：执法 + 地理 + 组合检索词命中（如"扎门乌德 毒品查获"）
-    if enforcement_hits and geo_hits and len(enforcement_hits) >= 2:
-        return {"pass": True, "score": total_score, "reason": f"执法+地理组合: {enforcement_hits[:2]}"}
-
-    # 情况E：弱药字但无执法也无地理 → 拒绝（纯医药内容）
+    # 情况D：弱药字但无执法也无地理 → 拒绝（纯医药内容）
     if has_weak_drug and not enforcement_hits and not geo_hits:
         return {"pass": False, "score": total_score, "reason": "纯医药词汇无执法/地理上下文"}
 
-    # 情况F：弱药字 + 地理 但无执法 → 大概率是医药监管页面，拒绝
+    # 情况E：弱药字 + 地理 但无执法 → 大概率是医药监管页面，拒绝
     if has_weak_drug and geo_hits and not enforcement_hits:
         return {"pass": False, "score": total_score, "reason": "医药词汇+地理但无执法动作"}
 
-    # 默认：分数不够拒绝
-    if total_score < 3:
-        return {"pass": False, "score": total_score, "reason": f"综合评分不足 ({total_score})"}
-
-    return {"pass": True, "score": total_score, "reason": f"综合通过 (得分{total_score})"}
+    # 默认拒绝
+    return {"pass": False, "score": total_score, "reason": f"评分不足 ({total_score})"}
 
 
 def date_filter(item: dict, max_days: int = 30) -> bool:
@@ -260,21 +258,22 @@ def date_filter(item: dict, max_days: int = 30) -> bool:
 # AI 优先过滤（DeepSeek 为主，规则引擎为 fallback）
 # ============================================================
 
-_ai_available = True
-
-
 def _check_with_ai(item: dict) -> dict:
-    """使用 DeepSeek AI 进行智能分类"""
-    global _ai_available
-    if not _ai_available:
-        return ai_classify(item)
+    """使用 DeepSeek AI 进行智能分类，失败时自动回退规则引擎（5分钟冷却后重试）"""
+    import modules.ai_classifier as aic
 
     try:
-        from modules.ai_classifier import classify_article
-        result = classify_article(item)
+        # 冷却检查：失败 5 分钟后自动重试
+        if not aic._ai_available:
+            if time.time() - aic._ai_fail_time > aic._AI_COOLDOWN_SECONDS:
+                aic._ai_available = True
+            else:
+                return ai_classify(item)
+
+        result = aic.classify_article(item)
         if result.get("ai_model") == "none":
-            # API 调用失败，回退规则引擎
-            _ai_available = False
+            aic._ai_available = False
+            aic._ai_fail_time = time.time()
             return ai_classify(item)
         return {
             "pass": result.get("is_relevant", False),
@@ -282,7 +281,8 @@ def _check_with_ai(item: dict) -> dict:
             "reason": f"DeepSeek: {result.get('reason', '')}",
         }
     except Exception:
-        _ai_available = False
+        aic._ai_available = False
+        aic._ai_fail_time = time.time()
         return ai_classify(item)
 
 

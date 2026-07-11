@@ -284,15 +284,6 @@ class StreamingCrawlCoordinator:
                     discovered.extend(links)
                     break
 
-        # 3. 尝试首页
-        if len(discovered) < 2 and site_url:
-            async with self.semaphore:
-                await asyncio.sleep(get_delay())
-                html = await self._http_get(client, site_url)
-            if html:
-                links = extract_article_links(html, site_url, domain)
-                discovered.extend(links)
-
         # 去重
         return list(dict.fromkeys(discovered))[:6]
 

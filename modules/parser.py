@@ -1,6 +1,6 @@
 """
-HTML 解析模块 v3.0 - 从文章详情页提取结构化情报
-仅删除 script/style/noscript，保留 header/nav/aside/footer
+HTML 解析模块 v4.0 - 从文章详情页提取结构化情报
+删除 script/style/noscript/header/nav/footer/aside，避免导航栏文本污染分类
 """
 
 import re
@@ -27,7 +27,7 @@ CONTENT_SELECTORS = [
 
 def clean_html(html: str) -> BeautifulSoup:
     soup = BeautifulSoup(html, "lxml")
-    for tag_name in ["script", "style", "noscript"]:
+    for tag_name in ["script", "style", "noscript", "header", "nav", "footer", "aside"]:
         for tag in soup.find_all(tag_name):
             tag.decompose()
     return soup
