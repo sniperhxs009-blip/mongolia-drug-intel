@@ -41,7 +41,7 @@ from modules.translator import translate_article
 app = FastAPI(
     title="蒙古国涉毒新闻情报爬虫系统",
     description="定向采集蒙古国涉毒资讯，覆盖 19 个数据源",
-    version="3.0.0",
+    version="4.0.0",
 )
 
 TEMPLATES_DIR = BASE_DIR / "templates"
