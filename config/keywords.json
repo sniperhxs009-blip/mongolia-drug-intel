@@ -1,0 +1,99 @@
+{
+  "keywords": {
+    "mn": {
+      "language": "蒙古语",
+      "primary": [
+        "мансууруулах",
+        "баривчилгаа",
+        "хил",
+        "фентанил",
+        "хураан",
+        "хар тамхи",
+        "гааль"
+      ],
+      "secondary": [
+        "мансууруулах бодис",
+        "хууль бус",
+        "худалдаа",
+        "эрүүгийн",
+        "шалгалт",
+        "хорих",
+        "хууль сахиулах",
+        "илрүүлэх",
+        "хилийн боомт",
+        "хууль бус эргэлт"
+      ]
+    },
+    "en": {
+      "language": "英语",
+      "primary": [
+        "Mongolia drug seizure",
+        "cross-border trafficking",
+        "fentanyl",
+        "synthetic drugs",
+        "Zamyn-Uud port narcotics",
+        "drug law",
+        "rehabilitation"
+      ],
+      "secondary": [
+        "Mongolia narcotics",
+        "drug smuggling Mongolia",
+        "opioid Mongolia",
+        "methamphetamine Mongolia",
+        "cannabis Mongolia",
+        "drug arrest Mongolia",
+        "border control drugs",
+        "UNODC Mongolia drugs",
+        "substance abuse Mongolia",
+        "drug policy Mongolia"
+      ]
+    },
+    "zh": {
+      "language": "中文",
+      "primary": [
+        "蒙古国缉毒",
+        "中蒙口岸贩毒",
+        "扎门乌德",
+        "甘其毛都",
+        "跨境走私",
+        "芬太尼",
+        "冰毒",
+        "禁毒专项",
+        "戒毒矫治"
+      ],
+      "secondary": [
+        "蒙古毒品",
+        "口岸查获",
+        "海关缉私",
+        "跨国贩毒",
+        "内蒙古禁毒",
+        "中蒙边境",
+        "禁毒合作",
+        "毒品走私",
+        "合成毒品",
+        "易制毒化学品"
+      ]
+    }
+  },
+  "weak_keywords": {
+    "note": "弱执法词汇+蒙古地理锚点即可入库，无需强制匹配强毒品词",
+    "geo_anchors": [
+      "蒙古", "Mongolia", "Монгол",
+      "扎门乌德", "Zamyn-Uud", "Замын-Үүд",
+      "甘其毛都", "Ganqimaodao",
+      "乌兰巴托", "Ulaanbaatar", "Улаанбаатар",
+      "二连浩特", "Erenhot",
+      "策克", "Ceke",
+      "满都拉", "Mandula"
+    ],
+    "weak_action_keywords": [
+      "口岸", "port", "боомт",
+      "海关", "customs", "гааль",
+      "查获", "seizure", "баривчилгаа",
+      "走私", "smuggling",
+      "跨境", "cross-border",
+      "边防", "border",
+      "检验", "inspection"
+    ]
+  }
+}

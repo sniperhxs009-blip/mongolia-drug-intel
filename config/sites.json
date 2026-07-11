@@ -1,0 +1,246 @@
+{
+  "categories": {
+    "category1_national_drug_enforcement": {
+      "name": "蒙古国国家级禁毒执法&监管政府机构",
+      "sites": [
+        {
+          "name": "蒙古国海关总署",
+          "name_en": "Mongolia Customs",
+          "url": "https://customs.gov.mn",
+          "search_urls": [
+            "https://customs.gov.mn/search?q={keyword}",
+            "https://customs.gov.mn/news?q={keyword}"
+          ],
+          "language": "mn",
+          "category": "government"
+        },
+        {
+          "name": "蒙古国药品与医疗器械监管局MMRA",
+          "name_en": "MMRA Mongolia",
+          "url": "https://mmra.gov.mn",
+          "search_urls": [
+            "https://mmra.gov.mn/search?q={keyword}",
+            "https://mmra.gov.mn/news?q={keyword}"
+          ],
+          "language": "mn",
+          "category": "government"
+        },
+        {
+          "name": "蒙古国总检察院",
+          "name_en": "Prosecutor General's Office",
+          "url": "https://procuracy.gov.mn",
+          "search_urls": [
+            "https://procuracy.gov.mn/search?q={keyword}",
+            "https://procuracy.gov.mn/news?q={keyword}"
+          ],
+          "language": "mn",
+          "category": "government"
+        },
+        {
+          "name": "蒙古国司法部",
+          "name_en": "Ministry of Justice Mongolia",
+          "url": "https://justice.gov.mn",
+          "search_urls": [
+            "https://justice.gov.mn/search?q={keyword}",
+            "https://justice.gov.mn/news?q={keyword}"
+          ],
+          "language": "mn",
+          "category": "government"
+        },
+        {
+          "name": "蒙古国国家安全总局",
+          "name_en": "National Security Agency",
+          "url": "https://nsa.gov.mn",
+          "search_urls": [
+            "https://nsa.gov.mn/search?q={keyword}",
+            "https://nsa.gov.mn/news?q={keyword}"
+          ],
+          "language": "mn",
+          "category": "government"
+        }
+      ]
+    },
+    "category2_international_agencies": {
+      "name": "国际驻蒙古禁毒官方机构",
+      "sites": [
+        {
+          "name": "UNODC联合国毒品和犯罪问题办公室蒙古站",
+          "name_en": "UNODC Mongolia",
+          "url": "https://www.unodc.org/mongolia",
+          "search_urls": [
+            "https://www.unodc.org/mongolia/en/search.html?q={keyword}",
+            "https://www.unodc.org/mongolia/en/index.html"
+          ],
+          "language": "en",
+          "category": "international"
+        },
+        {
+          "name": "联合国蒙古国办事处",
+          "name_en": "UN Mongolia",
+          "url": "https://mongolia.un.org",
+          "search_urls": [
+            "https://mongolia.un.org/en/search?q={keyword}",
+            "https://mongolia.un.org/en/news"
+          ],
+          "language": "en",
+          "category": "international"
+        },
+        {
+          "name": "国际刑警组织蒙古国家中心局",
+          "name_en": "INTERPOL Mongolia NCB",
+          "url": "https://www.interpol.int/en/Who-we-are/Member-countries/Asia-South-Pacific/MONGOLIA",
+          "search_urls": [
+            "https://www.interpol.int/en/News-and-Events?q={keyword}",
+            "https://www.interpol.int/en/Who-we-are/Member-countries/Asia-South-Pacific/MONGOLIA"
+          ],
+          "language": "en",
+          "category": "international"
+        }
+      ]
+    },
+    "category3_mongolian_news_media": {
+      "name": "蒙古主流新闻媒体",
+      "sites": [
+        {
+          "name": "蒙通社MONTSAME",
+          "name_en": "MONTSAME",
+          "url": "https://montsame.mn",
+          "search_urls": [
+            "https://montsame.mn/en/search?q={keyword}",
+            "https://montsame.mn/mn/search?q={keyword}"
+          ],
+          "language": "mn",
+          "category": "media"
+        },
+        {
+          "name": "蒙通社MONTSAME中文站",
+          "name_en": "MONTSAME Chinese",
+          "url": "https://montsame.mn/cn",
+          "search_urls": [
+            "https://montsame.mn/cn/search?q={keyword}"
+          ],
+          "language": "zh",
+          "category": "media"
+        },
+        {
+          "name": "IKON.MN",
+          "name_en": "IKON.MN",
+          "url": "https://ikon.mn",
+          "search_urls": [
+            "https://ikon.mn/search?q={keyword}",
+            "https://ikon.mn/search/{keyword}"
+          ],
+          "language": "mn",
+          "category": "media"
+        },
+        {
+          "name": "GOGO.MN",
+          "name_en": "GOGO.MN",
+          "url": "https://gogo.mn",
+          "search_urls": [
+            "https://gogo.mn/search?q={keyword}",
+            "https://gogo.mn/search/{keyword}"
+          ],
+          "language": "mn",
+          "category": "media"
+        },
+        {
+          "name": "News.mn",
+          "name_en": "News.mn",
+          "url": "https://news.mn",
+          "search_urls": [
+            "https://news.mn/search?q={keyword}",
+            "https://news.mn/search/{keyword}"
+          ],
+          "language": "mn",
+          "category": "media"
+        },
+        {
+          "name": "UB Post",
+          "name_en": "UB Post",
+          "url": "https://ubpost.mongolnews.mn",
+          "search_urls": [
+            "https://ubpost.mongolnews.mn/search?q={keyword}",
+            "https://ubpost.mongolnews.mn/?s={keyword}"
+          ],
+          "language": "en",
+          "category": "media"
+        },
+        {
+          "name": "See.mn",
+          "name_en": "See.mn",
+          "url": "https://see.mn",
+          "search_urls": [
+            "https://see.mn/search?q={keyword}",
+            "https://see.mn/search/{keyword}"
+          ],
+          "language": "mn",
+          "category": "media"
+        },
+        {
+          "name": "蒙古内阁官媒Gobimedia",
+          "name_en": "Gobimedia",
+          "url": "https://gobimedia.mn",
+          "search_urls": [
+            "https://gobimedia.mn/search?q={keyword}",
+            "https://gobimedia.mn/?s={keyword}"
+          ],
+          "language": "mn",
+          "category": "media"
+        }
+      ]
+    },
+    "category4_china_mongolia_cross_border": {
+      "name": "中方中蒙跨境禁毒配套数据源",
+      "sites": [
+        {
+          "name": "中国国家禁毒委员会办公室",
+          "name_en": "China NNCC",
+          "url": "http://www.nncc626.com",
+          "search_urls": [
+            "http://www.nncc626.com/search.html?q={keyword}",
+            "http://www.nncc626.com/index.html"
+          ],
+          "language": "zh",
+          "category": "government_cn"
+        },
+        {
+          "name": "中新网内蒙古频道",
+          "name_en": "Chinanews Inner Mongolia",
+          "url": "https://www.chinanews.com.cn/channel/neimenggu.shtml",
+          "search_urls": [
+            "https://www.chinanews.com.cn/search?q={keyword}",
+            "https://www.chinanews.com.cn/channel/neimenggu.shtml"
+          ],
+          "language": "zh",
+          "category": "media_cn"
+        }
+      ]
+    },
+    "category5_ngo_research": {
+      "name": "民间调研&禁毒NGO",
+      "sites": [
+        {
+          "name": "IRIM独立调研机构",
+          "name_en": "IRIM Research",
+          "url": "https://irim.mn",
+          "search_urls": [
+            "https://irim.mn/search?q={keyword}",
+            "https://irim.mn/reports"
+          ],
+          "language": "mn",
+          "category": "ngo"
+        }
+      ]
+    }
+  },
+  "crawl_settings": {
+    "base_delay_seconds": 0.3,
+    "random_jitter_seconds": 0.5,
+    "max_articles_per_site_per_day": 30,
+    "default_lookback_days": 90,
+    "lock_timeout_minutes": 15,
+    "request_timeout_seconds": 30,
+    "max_retries_per_url": 2
+  }
+}

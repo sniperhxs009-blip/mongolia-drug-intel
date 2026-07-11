@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>蒙古国涉毒新闻情报系统</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+        .header { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-bottom: 2px solid #334155; padding: 20px 40px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; }
+        .header h1 { font-size: 1.5em; color: #f1f5f9; }
+        .header .subtitle { font-size: 0.85em; color: #94a3b8; margin-top: 4px; }
+        .stats-bar { display: flex; gap: 24px; flex-wrap: wrap; }
+        .stat-item { text-align: center; }
+        .stat-value { font-size: 1.8em; font-weight: bold; color: #38bdf8; }
+        .stat-label { font-size: 0.75em; color: #94a3b8; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 24px 40px; }
+        .controls { background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+        .controls input, .controls select { padding: 10px 16px; border-radius: 8px; border: 1px solid #475569; background: #0f172a; color: #e2e8f0; font-size: 0.9em; min-width: 160px; }
+        .controls input::placeholder { color: #64748b; }
+        .controls input:focus, .controls select:focus { outline: none; border-color: #38bdf8; box-shadow: 0 0 0 3px rgba(56,189,248,0.15); }
+        .btn { padding: 10px 24px; border-radius: 8px; border: none; font-size: 0.9em; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .btn-search { background: #38bdf8; color: #0f172a; }
+        .btn-search:hover { background: #0ea5e9; }
+        .btn-crawl { background: #10b981; color: #fff; }
+        .btn-crawl:hover { background: #059669; }
+        .btn-crawl:disabled { background: #475569; cursor: not-allowed; }
+        .btn-reset { background: #475569; color: #e2e8f0; }
+        .btn-reset:hover { background: #64748b; }
+        .progress-bar { background: #334155; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; display: none; align-items: center; gap: 12px; }
+        .progress-bar.active { display: flex; }
+        .spinner { width: 20px; height: 20px; border: 3px solid #475569; border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .progress-text { color: #94a3b8; font-size: 0.9em; flex: 1; }
+        .table-container { background: #1e293b; border-radius: 12px; overflow: hidden; }
+        table { width: 100%; border-collapse: collapse; }
+        th { background: #334155; padding: 14px 16px; text-align: left; font-size: 0.8em; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; }
+        td { padding: 14px 16px; border-bottom: 1px solid #1e293b; font-size: 0.88em; vertical-align: top; }
+        tr:hover td { background: rgba(56,189,248,0.05); }
+        .lang-tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75em; font-weight: 600; }
+        .lang-mn { background: #7c3aed20; color: #a78bfa; }
+        .lang-zh { background: #ef444420; color: #f87171; }
+        .lang-en { background: #10b98120; color: #34d399; }
+        .kw-tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75em; background: #38bdf820; color: #38bdf8; margin-left: 4px; }
+        .source-link { color: #38bdf8; text-decoration: none; font-size: 0.85em; }
+        .source-link:hover { text-decoration: underline; }
+        .empty-state { text-align: center; padding: 60px 20px; color: #64748b; }
+        .empty-state .icon { font-size: 3em; margin-bottom: 16px; }
+        .pagination { display: flex; justify-content: center; align-items: center; gap: 12px; padding: 20px; }
+        .pagination button { padding: 8px 16px; border-radius: 6px; border: 1px solid #475569; background: #1e293b; color: #e2e8f0; cursor: pointer; }
+        .pagination button:hover { background: #334155; }
+        .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+        .pagination span { color: #94a3b8; font-size: 0.9em; }
+        @media (max-width: 768px) {
+            .header, .container { padding: 16px; }
+            .controls { flex-direction: column; }
+            .controls input, .controls select { width: 100%; min-width: auto; }
+            .stats-bar { gap: 12px; }
+            .stat-value { font-size: 1.3em; }
+            table { font-size: 0.8em; }
+            th, td { padding: 10px 8px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <h1>蒙古国涉毒新闻情报系统</h1>
+            <div class="subtitle">Mongolia Drug Intelligence Crawler — 覆盖 17 个站点 · 蒙中英三语种</div>
+        </div>
+        <div class="stats-bar">
+            <div class="stat-item">
+                <div class="stat-value" id="stat-total">0</div>
+                <div class="stat-label">情报总数</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="stat-mn">0</div>
+                <div class="stat-label">蒙语</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="stat-zh">0</div>
+                <div class="stat-label">中文</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="stat-en">0</div>
+                <div class="stat-label">英语</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- 进度条 -->
+        <div class="progress-bar" id="progress-bar">
+            <div class="spinner"></div>
+            <div class="progress-text" id="progress-text">正在初始化采集...</div>
+        </div>
+
+        <!-- 搜索控制 -->
+        <div class="controls">
+            <input type="text" id="search-keyword" placeholder="关键词搜索（地名/毒品词）..." onkeydown="if(event.key==='Enter')searchIntel()">
+            <select id="search-language">
+                <option value="">全部语种</option>
+                <option value="mn">蒙语 (mn)</option>
+                <option value="zh">中文 (zh)</option>
+                <option value="en">英语 (en)</option>
+            </select>
+            <input type="date" id="search-start-date" placeholder="开始日期">
+            <input type="date" id="search-end-date" placeholder="结束日期">
+            <button class="btn btn-search" onclick="searchIntel()">搜索</button>
+            <button class="btn btn-reset" onclick="resetSearch()">重置</button>
+            <button class="btn btn-crawl" id="btn-crawl" onclick="startCrawl()">开始采集</button>
+        </div>
+
+        <!-- 数据表格 -->
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>标题</th>
+                        <th>时间</th>
+                        <th>来源</th>
+                        <th>语种</th>
+                        <th>命中词</th>
+                        <th>链接</th>
+                    </tr>
+                </thead>
+                <tbody id="table-body">
+                    <tr><td colspan="6" class="empty-state">
+                        <div class="icon">🔍</div>
+                        <div>暂无数据 — 点击「开始采集」获取情报，或使用搜索框检索已有数据</div>
+                    </td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 分页 -->
+        <div class="pagination" id="pagination"></div>
+    </div>
+
+    <script>
+        let currentPage = 1;
+        const PAGE_SIZE = 50;
+
+        // 页面加载时获取统计和初始数据
+        document.addEventListener('DOMContentLoaded', () => {
+            loadStats();
+            searchIntel();
+            checkCrawlStatus();
+        });
+
+        async function loadStats() {
+            try {
+                const resp = await fetch('/api/stats');
+                const stats = await resp.json();
+                document.getElementById('stat-total').textContent = stats.total || 0;
+                const byLang = stats.by_language || {};
+                document.getElementById('stat-mn').textContent = byLang.mn || 0;
+                document.getElementById('stat-zh').textContent = byLang.zh || 0;
+                document.getElementById('stat-en').textContent = byLang.en || 0;
+            } catch (e) { console.error('加载统计失败', e); }
+        }
+
+        async function searchIntel(page = 1) {
+            currentPage = page;
+            const params = new URLSearchParams();
+            const keyword = document.getElementById('search-keyword').value.trim();
+            const language = document.getElementById('search-language').value;
+            const startDate = document.getElementById('search-start-date').value;
+            const endDate = document.getElementById('search-end-date').value;
+
+            if (keyword) params.set('keyword', keyword);
+            if (language) params.set('language', language);
+            if (startDate) params.set('start_date', startDate);
+            if (endDate) params.set('end_date', endDate);
+            params.set('limit', String(PAGE_SIZE));
+            params.set('offset', String((page - 1) * PAGE_SIZE));
+
+            try {
+                const resp = await fetch(`/api/intel?${params.toString()}`);
+                const data = await resp.json();
+                renderTable(data.results || []);
+                renderPagination(data.total || 0, page);
+            } catch (e) {
+                console.error('搜索失败', e);
+                document.getElementById('table-body').innerHTML =
+                    '<tr><td colspan="6" class="empty-state"><div>搜索出错，请重试</div></td></tr>';
+            }
+        }
+
+        function renderTable(results) {
+            const tbody = document.getElementById('table-body');
+            if (!results || results.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="icon">📭</div><div>无匹配数据 — 尝试其他关键词或先执行采集</div></td></tr>';
+                return;
+            }
+
+            const langLabels = { mn: '蒙语', zh: '中文', en: '英语' };
+            tbody.innerHTML = results.map(item => {
+                const title = (item.news_title || '(无标题)').substring(0, 80);
+                const time = item.publish_time || '';
+                const source = item.source_name || '';
+                const lang = item.language || '';
+                const langLabel = langLabels[lang] || lang;
+                const kw = item.keyword_hit || '';
+                const url = item.source_url || '#';
+                return `<tr>
+                    <td><strong>${escapeHtml(title)}</strong></td>
+                    <td style="white-space:nowrap">${escapeHtml(time)}</td>
+                    <td>${escapeHtml(source)}</td>
+                    <td><span class="lang-tag lang-${lang}">${escapeHtml(langLabel)}</span></td>
+                    <td>${kw ? `<span class="kw-tag">${escapeHtml(kw)}</span>` : '-'}</td>
+                    <td><a class="source-link" href="${escapeHtml(url)}" target="_blank" rel="noopener">查看原文</a></td>
+                </tr>`;
+            }).join('');
+        }
+
+        function renderPagination(total, page) {
+            const totalPages = Math.ceil(total / PAGE_SIZE);
+            const pag = document.getElementById('pagination');
+            if (totalPages <= 1) {
+                pag.innerHTML = total > 0 ? `<span>共 ${total} 条记录</span>` : '';
+                return;
+            }
+            pag.innerHTML = `
+                <button onclick="searchIntel(${page - 1})" ${page <= 1 ? 'disabled' : ''}>上一页</button>
+                <span>第 ${page} / ${totalPages} 页 (共 ${total} 条)</span>
+                <button onclick="searchIntel(${page + 1})" ${page >= totalPages ? 'disabled' : ''}>下一页</button>
+            `;
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function resetSearch() {
+            document.getElementById('search-keyword').value = '';
+            document.getElementById('search-language').value = '';
+            document.getElementById('search-start-date').value = '';
+            document.getElementById('search-end-date').value = '';
+            searchIntel(1);
+        }
+
+        async function startCrawl() {
+            const btn = document.getElementById('btn-crawl');
+            btn.disabled = true;
+            btn.textContent = '采集启动中...';
+
+            try {
+                const resp = await fetch('/api/crawl/start', { method: 'POST' });
+                const data = await resp.json();
+                if (data.status === 'ok') {
+                    document.getElementById('progress-bar').classList.add('active');
+                    document.getElementById('progress-text').textContent = '正在初始化采集...';
+                    pollCrawlStatus();
+                } else {
+                    alert(data.message || '启动失败');
+                    btn.disabled = false;
+                    btn.textContent = '开始采集';
+                }
+            } catch (e) {
+                alert('启动采集失败: ' + e.message);
+                btn.disabled = false;
+                btn.textContent = '开始采集';
+            }
+        }
+
+        async function checkCrawlStatus() {
+            try {
+                const resp = await fetch('/api/crawl/status');
+                const status = await resp.json();
+                if (status.running) {
+                    document.getElementById('progress-bar').classList.add('active');
+                    document.getElementById('progress-text').textContent = status.progress || '采集中...';
+                    document.getElementById('btn-crawl').disabled = true;
+                    pollCrawlStatus();
+                }
+            } catch (e) {}
+        }
+
+        function pollCrawlStatus() {
+            const interval = setInterval(async () => {
+                try {
+                    const resp = await fetch('/api/crawl/status');
+                    const status = await resp.json();
+                    document.getElementById('progress-text').textContent = status.progress || '采集中...';
+
+                    if (!status.running) {
+                        clearInterval(interval);
+                        document.getElementById('progress-bar').classList.remove('active');
+                        document.getElementById('btn-crawl').disabled = false;
+                        document.getElementById('btn-crawl').textContent = '开始采集';
+                        loadStats();
+                        searchIntel();
+                    }
+                } catch (e) {
+                    clearInterval(interval);
+                }
+            }, 2000);
+        }
+    </script>
+</body>
+</html>

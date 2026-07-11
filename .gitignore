@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.env
+data/mongolia_drug_intel.json
+data/audit.log
+*.lock
+.DS_Store

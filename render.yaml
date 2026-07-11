@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: mongolia-drug-intel
+    env: python
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn run:app --host 0.0.0.0 --port $PORT
+    plan: free
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.0"
