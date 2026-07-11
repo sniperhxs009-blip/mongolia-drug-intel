@@ -1,11 +1,12 @@
 """
-蒙古国涉毒新闻情报爬虫 - 搜索抓取模块 v3.0
+蒙古国涉毒新闻情报爬虫 - 搜索抓取模块 v3.1
 ============================================
 两阶段采集：
   Phase 1 发现：搜索/列表页 → 提取具体文章 URL
   Phase 2 详情：访问每篇文章页面 → 解析正文内容
 
 保证 19 个站点全部遍历，不遗漏任何一个。
+v3.1: 失败重试队列 + 断点续爬 + 阶梯反爬延迟
 """
 
 import asyncio
@@ -20,6 +21,10 @@ from typing import Optional, Callable, Awaitable
 from urllib.parse import urljoin, urlparse
 
 import httpx
+
+from modules.logger import get_logger
+
+log = get_logger("searcher")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_DIR = BASE_DIR / "config"
@@ -135,6 +140,59 @@ class CrawlLock:
                 pass
 
 
+class CrawlCheckpoint:
+    """断点续爬：持久化记录已抓取 URL 和失败 URL 重试次数"""
+
+    def __init__(self):
+        self.checkpoint_path = DATA_DIR / ".crawl_checkpoint.json"
+        self.crawled: set[str] = set()
+        self.failed: dict[str, int] = {}  # url -> retry_count
+        self._load()
+
+    def _load(self):
+        try:
+            if self.checkpoint_path.exists():
+                with open(self.checkpoint_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                self.crawled = set(data.get("crawled", []))
+                self.failed = data.get("failed", {})
+                # 清理超过 24h 的旧记录
+                saved_time = data.get("timestamp", 0)
+                if time.time() - saved_time > 86400:
+                    self.crawled.clear()
+                    self.failed.clear()
+        except Exception:
+            pass
+
+    def _save(self):
+        try:
+            with open(self.checkpoint_path, "w", encoding="utf-8") as f:
+                json.dump({
+                    "crawled": list(self.crawled),
+                    "failed": self.failed,
+                    "timestamp": time.time(),
+                }, f, ensure_ascii=False)
+        except Exception:
+            pass
+
+    def is_crawled(self, url: str) -> bool:
+        return url in self.crawled
+
+    def mark_crawled(self, url: str):
+        self.crawled.add(url)
+        self.failed.pop(url, None)  # 成功后清除失败计数
+        self._save()
+
+    def can_retry(self, url: str, max_retries: int = 3) -> bool:
+        return self.failed.get(url, 0) < max_retries
+
+    def mark_failed(self, url: str):
+        self.failed[url] = self.failed.get(url, 0) + 1
+        if self.failed[url] >= 3:
+            log.warning("URL 失败 %d 次，丢弃: %s", self.failed[url], url[:100])
+        self._save()
+
+
 # ============================================================
 # Phase 1: 文章链接提取
 # ============================================================
@@ -222,11 +280,14 @@ class StreamingCrawlCoordinator:
                  on_progress: Optional[Callable[[str], Awaitable[None]]] = None):
         self.rate_limiter = DailyRateLimiter()
         self.lock = CrawlLock()
+        self.checkpoint = CrawlCheckpoint()
         self.on_article = on_article
         self.on_progress = on_progress
         self.timeout = 8
         self.semaphore = asyncio.Semaphore(20)
         self.cancel_event = asyncio.Event()
+        # 阶梯反爬：记录每个域名的连续失败次数，用于增加延迟
+        self._domain_fail_count: dict[str, int] = {}
 
     async def _progress(self, msg: str):
         if self.on_progress:
@@ -236,20 +297,41 @@ class StreamingCrawlCoordinator:
         if self.on_article:
             await self.on_article(item)
 
-    async def _http_get(self, client: httpx.AsyncClient, url: str) -> Optional[str]:
-        """执行 HTTP GET 请求，返回 HTML 文本"""
+    async def _http_get(self, client: httpx.AsyncClient, url: str, max_retries: int = 3) -> Optional[str]:
+        """执行 HTTP GET 请求，带指数退避重试"""
+        domain = urlparse(url).netloc
         headers = {
             "User-Agent": get_random_ua(),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "mn-MN,mn;q=0.9,en-US;q=0.8,zh-CN;q=0.6",
         }
-        try:
-            resp = await client.get(url, headers=headers)
-            if resp.status_code == 200 and resp.text and len(resp.text) > 300:
-                return resp.text
-        except Exception:
-            pass
+
+        for attempt in range(max_retries):
+            try:
+                resp = await client.get(url, headers=headers)
+                if resp.status_code == 200 and resp.text and len(resp.text) > 300:
+                    self._domain_fail_count[domain] = 0
+                    return resp.text
+                if resp.status_code in (429, 503):
+                    wait = 2 ** attempt
+                    log.debug("HTTP %d on %s, retry in %ds", resp.status_code, url[:80], wait)
+                    await asyncio.sleep(wait)
+                    continue
+                if resp.status_code in (403, 404):
+                    break  # 不重试 403/404
+            except Exception:
+                wait = 2 ** attempt
+                await asyncio.sleep(wait)
+
+        self._domain_fail_count[domain] = self._domain_fail_count.get(domain, 0) + 1
         return None
+
+    def _get_backoff_delay(self, domain: str) -> float:
+        """根据域名失败次数返回阶梯延迟"""
+        fails = self._domain_fail_count.get(domain, 0)
+        if fails == 0:
+            return get_delay()
+        return min(0.01 + fails * 0.5, 5.0) + random.uniform(0, 0.5)
 
     async def _discover_articles(self, client: httpx.AsyncClient, site: dict, keyword: str) -> list[str]:
         """
@@ -327,8 +409,18 @@ class StreamingCrawlCoordinator:
                 if self.cancel_event.is_set():
                     return
 
+                # 断点续爬：跳过已抓取的 URL
+                if self.checkpoint.is_crawled(article_url):
+                    return
+
+                # 失败重试检查：超过 3 次的直接跳过
+                if not self.checkpoint.can_retry(article_url, max_retries=3):
+                    return
+
+                domain = urlparse(article_url).netloc
                 async with self.semaphore:
-                    await asyncio.sleep(get_delay())
+                    delay = self._get_backoff_delay(domain)
+                    await asyncio.sleep(delay)
                     html = await self._http_get(client, article_url)
 
                 if html:
@@ -336,12 +428,21 @@ class StreamingCrawlCoordinator:
                     if parsed and strict_filter(parsed):
                         articles.append(parsed)
                         self.rate_limiter.increment(site_name)
+                        self.checkpoint.mark_crawled(article_url)
                         await self._article_callback(parsed)
+                    else:
+                        self.checkpoint.mark_crawled(article_url)
+                else:
+                    self.checkpoint.mark_failed(article_url)
 
             # 并行抓取文章详情
             if all_links:
-                tasks = [fetch_article(link) for link in all_links[:min(remaining, 8)]]
-                await asyncio.gather(*tasks, return_exceptions=True)
+                # 过滤掉已抓取和失败过多的
+                to_fetch = [l for l in all_links[:min(remaining, 8)]
+                           if not self.checkpoint.is_crawled(l) and self.checkpoint.can_retry(l)]
+                if to_fetch:
+                    tasks = [fetch_article(link) for link in to_fetch]
+                    await asyncio.gather(*tasks, return_exceptions=True)
 
         return articles
 

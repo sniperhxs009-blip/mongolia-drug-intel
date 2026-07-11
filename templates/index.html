@@ -129,6 +129,10 @@
         let eventSource = null;
         let liveCount = 0;
         let isLiveCrawl = false;
+        let reconnectAttempt = 0;
+        let reconnectTimer = null;
+        const MAX_RECONNECT_DELAY = 30000;  // 最大重连延迟 30s
+        const ADMIN_TOKEN = '';  // 如果有设置 ADMIN_TOKEN 环境变量，在此填入
         const langLabels = { mn: '蒙语', zh: '中文', en: '英语' };
 
         document.addEventListener('DOMContentLoaded', () => {
@@ -264,32 +268,15 @@
         // SSE 实时采集
         // ============================================================
 
-        function startCrawl() {
-            if (isLiveCrawl) return;
+        function connectSSE() {
+            // 构建 SSE URL（带 token 鉴权）
+            let url = '/api/crawl/stream';
+            if (ADMIN_TOKEN) url += '?token=' + encodeURIComponent(ADMIN_TOKEN);
 
-            const btn = document.getElementById('btn-crawl');
-            const stopBtn = document.getElementById('btn-stop');
-            const progressBar = document.getElementById('progress-bar');
-            const progressText = document.getElementById('progress-text');
-
-            btn.disabled = true;
-            btn.textContent = '采集中...';
-            stopBtn.classList.add('active');
-            progressBar.classList.add('active');
-            progressText.textContent = '正在连接...';
-            liveCount = 0;
-            isLiveCrawl = true;
-
-            // 在顶部插入状态提示
-            const container = document.getElementById('articles-list');
-            container.innerHTML = `<div class="empty-state">
-                <div class="icon">⏳</div>
-                <div>实时采集中... 已获取 <strong id="live-counter">0</strong> 条情报</div>
-            </div>`;
-
-            eventSource = new EventSource('/api/crawl/stream');
+            eventSource = new EventSource(url);
 
             eventSource.addEventListener('article', function(e) {
+                reconnectAttempt = 0;  // 收到数据则重置重连计数
                 try {
                     const item = JSON.parse(e.data);
                     prependArticle(item);
@@ -302,14 +289,12 @@
             eventSource.addEventListener('translate', function(e) {
                 try {
                     const item = JSON.parse(e.data);
-                    // 找到对应文章卡片并更新翻译内容
-                    const url = item.source_url;
-                    if (url) {
+                    const targetUrl = item.source_url;
+                    if (targetUrl) {
                         const cards = document.querySelectorAll('.article-card');
                         for (const card of cards) {
                             const link = card.querySelector('.source-link');
-                            if (link && link.href === url) {
-                                // 更新中文标题
+                            if (link && link.href === targetUrl) {
                                 const cnTitleEl = card.querySelector('.article-title-cn');
                                 if (item.cn_title && item.cn_title !== item.news_title) {
                                     if (cnTitleEl) {
@@ -324,7 +309,6 @@
                                         }
                                     }
                                 }
-                                // 更新中文摘要
                                 const cnSummaryEl = card.querySelector('.article-summary-cn');
                                 if (item.cn_summary && item.cn_summary !== item.content_summary) {
                                     if (cnSummaryEl) {
@@ -372,15 +356,53 @@
             });
 
             eventSource.onerror = function(e) {
-                if (isLiveCrawl) {
-                    progressText.textContent = liveCount > 0 ? `采集中断，已获取 ${liveCount} 条` : '连接失败';
-                    finishCrawl();
-                }
+                if (!isLiveCrawl) return;
+                // 指数退避重连
+                const delay = Math.min(1000 * Math.pow(2, reconnectAttempt), MAX_RECONNECT_DELAY);
+                reconnectAttempt++;
+                progressText.textContent = `连接断开，${Math.round(delay/1000)}s 后自动重连 (第${reconnectAttempt}次)...`;
+                eventSource.close();
+                eventSource = null;
+                reconnectTimer = setTimeout(function() {
+                    if (isLiveCrawl) {
+                        progressText.textContent = '正在重连...';
+                        connectSSE();
+                    }
+                }, delay);
             };
         }
 
+        function startCrawl() {
+            if (isLiveCrawl) return;
+
+            const btn = document.getElementById('btn-crawl');
+            const stopBtn = document.getElementById('btn-stop');
+            progressBar = document.getElementById('progress-bar');
+            progressText = document.getElementById('progress-text');
+
+            btn.disabled = true;
+            btn.textContent = '采集中...';
+            stopBtn.classList.add('active');
+            progressBar.classList.add('active');
+            progressText.textContent = '正在连接...';
+            liveCount = 0;
+            isLiveCrawl = true;
+            reconnectAttempt = 0;
+
+            const container = document.getElementById('articles-list');
+            container.innerHTML = `<div class="empty-state">
+                <div class="icon">⏳</div>
+                <div>实时采集中... 已获取 <strong id="live-counter">0</strong> 条情报</div>
+            </div>`;
+
+            connectSSE();
+        }
+
         function stopCrawl() {
-            fetch('/api/crawl/stop', { method: 'POST' });
+            let stopUrl = '/api/crawl/stop';
+            if (ADMIN_TOKEN) stopUrl += '?token=' + encodeURIComponent(ADMIN_TOKEN);
+            fetch(stopUrl, { method: 'POST' });
+            if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
             if (eventSource) eventSource.close();
             finishCrawl();
             document.getElementById('progress-text').textContent = '采集已手动停止';
@@ -388,6 +410,8 @@
 
         function finishCrawl() {
             isLiveCrawl = false;
+            reconnectAttempt = 0;
+            if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
             if (eventSource) { eventSource.close(); eventSource = null; }
             document.getElementById('btn-crawl').disabled = false;
             document.getElementById('btn-crawl').textContent = '开始采集';

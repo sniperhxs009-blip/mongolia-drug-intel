@@ -4,7 +4,7 @@ HTML 解析模块 v4.0 - 从文章详情页提取结构化情报
 """
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 from bs4 import BeautifulSoup, Tag
 
@@ -107,10 +107,48 @@ def extract_publish_date(soup: BeautifulSoup) -> str:
 
 
 def _parse_date_str(d: str) -> Optional[str]:
-    """尝试解析各种日期字符串"""
+    """尝试解析各种日期字符串，包括相对日期"""
     d = d.strip()
     if not d:
         return None
+
+    # 相对日期处理
+    today = datetime.now()
+    rel_lower = d.lower()
+
+    # 中文相对日期
+    if "昨天" in d or "昨日" in d:
+        return (today - timedelta(days=1)).strftime("%Y-%m-%d")
+    if "今天" in d or "今日" in d:
+        return today.strftime("%Y-%m-%d")
+    if "前天" in d:
+        return (today - timedelta(days=2)).strftime("%Y-%m-%d")
+    if "本月" in d:
+        return today.strftime("%Y-%m") + "-01"
+
+    # 英文相对日期
+    if rel_lower in ("yesterday",):
+        return (today - timedelta(days=1)).strftime("%Y-%m-%d")
+    if rel_lower in ("today",):
+        return today.strftime("%Y-%m-%d")
+
+    # "X 小时前" / "X hours ago" → 今天
+    m = re.match(r'(\d+)\s*(小时前|hours?\s*ago)', d, re.IGNORECASE)
+    if m:
+        return today.strftime("%Y-%m-%d")
+
+    # "X 天前" / "X days ago"
+    m = re.match(r'(\d+)\s*(天前|days?\s*ago)', d, re.IGNORECASE)
+    if m:
+        return (today - timedelta(days=int(m.group(1)))).strftime("%Y-%m-%d")
+
+    # 蒙古语相对日期
+    if "өчигдөр" in rel_lower:
+        return (today - timedelta(days=1)).strftime("%Y-%m-%d")
+    if "өнөөдөр" in rel_lower:
+        return today.strftime("%Y-%m-%d")
+
+    # 标准日期格式
     for regex, fmt in DATE_REGEXES:
         m = regex.search(d)
         if m:
@@ -119,6 +157,8 @@ def _parse_date_str(d: str) -> Optional[str]:
                     return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
                 elif fmt == "cn":
                     return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+                elif fmt == "mn":
+                    return f"{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}"
                 elif fmt == "dot":
                     return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
                 elif fmt == "slash":

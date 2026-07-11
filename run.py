@@ -3,10 +3,11 @@
 ==========================================
 FastAPI Web 服务，提供：
 - Web 检索界面（/）
-- REST API 接口
+- REST API 接口（采集接口需 token 鉴权）
 - SSE 实时流式采集（/api/crawl/stream）
 - 每条情报采集后实时推送到前端
 - 简易关键词检索
+- 接口限流 + 鉴权
 
 启动方式:
   python run.py
@@ -17,15 +18,23 @@ import asyncio
 import json
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
+from collections import defaultdict
 
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, Query, Request, HTTPException, Depends
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR))
+
+from modules.logger import init_logging, get_logger
+
+# 初始化日志系统
+init_logging(os.environ.get("LOG_LEVEL", "INFO"))
+log = get_logger("run")
 
 from modules.searcher import StreamingCrawlCoordinator
 from modules.storage import (
@@ -38,10 +47,15 @@ from modules.storage import (
 from modules.search_tool import search
 from modules.translator import translate_article
 
+# 管理后台鉴权 token
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
+if not ADMIN_TOKEN:
+    log.warning("ADMIN_TOKEN 未设置！采集接口无鉴权保护")
+
 app = FastAPI(
     title="蒙古国涉毒新闻情报爬虫系统",
     description="定向采集蒙古国涉毒资讯，覆盖 19 个数据源",
-    version="5.0.0",
+    version="5.1.0",
 )
 
 TEMPLATES_DIR = BASE_DIR / "templates"
@@ -57,6 +71,37 @@ crawl_state = {
     "total_articles": 0,
     "coordinator": None,
 }
+
+# 简易 IP 限流（每分钟每 IP 最大请求数）
+_rate_limits: dict[str, list[float]] = defaultdict(list)
+_RATE_LIMIT_MAX = int(os.environ.get("RATE_LIMIT_PER_MINUTE", "60"))
+_RATE_LIMIT_WINDOW = 60
+
+
+def _check_rate_limit(request: Request):
+    """简易 IP 限流"""
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    window_start = now - _RATE_LIMIT_WINDOW
+    _rate_limits[client_ip] = [t for t in _rate_limits[client_ip] if t > window_start]
+    if len(_rate_limits[client_ip]) >= _RATE_LIMIT_MAX:
+        raise HTTPException(status_code=429, detail="请求过于频繁，请稍后重试")
+    _rate_limits[client_ip].append(now)
+
+
+def _verify_token(request: Request):
+    """验证管理后台 token"""
+    if not ADMIN_TOKEN:
+        return  # 未配置则不校验
+    token = request.query_params.get("token") or request.headers.get("X-Admin-Token", "")
+    if token != ADMIN_TOKEN:
+        raise HTTPException(status_code=403, detail="无效的管理令牌")
+
+
+async def _auth_and_limit(request: Request):
+    """鉴权 + 限流组合依赖"""
+    _check_rate_limit(request)
+    _verify_token(request)
 
 
 # ============================================================
@@ -108,10 +153,11 @@ async def api_crawl_status():
 @app.get("/api/crawl/stream")
 async def api_crawl_stream(request: Request):
     """
-    SSE 流式采集端点。
+    SSE 流式采集端点（需要 ?token= 鉴权）。
     连接到该端点后自动开始采集，每条情报实时推送到前端。
     客户端断开连接则停止采集。
     """
+    _verify_token(request)
     global crawl_state
 
     if crawl_state["running"]:
@@ -220,9 +266,9 @@ async def api_crawl_stream(request: Request):
 
 
 @app.post("/api/crawl/stop")
-async def api_crawl_stop():
-    """停止采集"""
-    global crawl_state
+async def api_crawl_stop(request: Request):
+    """停止采集（需要 token 鉴权）"""
+    _verify_token(request)
     if crawl_state["coordinator"]:
         crawl_state["coordinator"].stop()
     crawl_state["running"] = False
@@ -237,16 +283,19 @@ if __name__ == "__main__":
     import uvicorn
 
     port = int(os.environ.get("PORT", 8000))
+    init_logging()
+    log.info("系统启动中... 端口=%d", port)
     print(f"""
 ╔══════════════════════════════════════════════════════════╗
-║    蒙古国涉毒新闻情报爬虫系统 v2.1                        ║
+║    蒙古国涉毒新闻情报爬虫系统 v5.1                        ║
 ║    Mongolia Drug Intelligence Crawler                    ║
 ║                                                          ║
 ║    启动地址: http://localhost:{port}                       ║
 ║    API 文档: http://localhost:{port}/docs                 ║
 ║                                                          ║
 ║    数据源: 19 个站点 (5 大类别) · SSE 实时推送+翻译       ║
-║    关键词: 蒙/中/英 三语种 · SSE 实时推送                 ║
+║    关键词: 蒙/中/英 三语种 · AI 智能分类                  ║
+║    鉴权: ADMIN_TOKEN={'已设置' if ADMIN_TOKEN else '未设置(不安全)'}                      ║
 ╚══════════════════════════════════════════════════════════╝
     """)
     uvicorn.run("run:app", host="0.0.0.0", port=port, reload=False)

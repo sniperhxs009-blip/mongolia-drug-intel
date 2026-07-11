@@ -5,5 +5,12 @@ venv/
 .env
 data/mongolia_drug_intel.json
 data/audit.log
+data/.translation_cache.json
+data/.crawl_checkpoint.json
+data/.daily_counter.json
+data/.crawl.lock
+logs/
 *.lock
 .DS_Store
+*.txt
+!requirements.txt
