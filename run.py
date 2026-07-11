@@ -125,20 +125,30 @@ async def api_crawl_stream(request: Request):
     article_queue: asyncio.Queue = asyncio.Queue()
 
     async def on_article(item: dict):
-        """每解析出一条情报时：翻译 → 持久化 → 推送"""
-        # 翻译标题和摘要为中文
-        try:
-            item = await translate_article(item)
-        except Exception:
-            pass  # 翻译失败不影响采集
-        # 立即持久化
+        """每解析出一条情报时：立即推送 → 后台翻译 → 更新"""
+        # 先立即推送原文（不等翻译）
         is_new = append_single_intel(item)
         if is_new:
             crawl_state["total_articles"] += 1
-            await article_queue.put(("article", item))
-        else:
-            # 重复文章也推送（让前端知道）
-            await article_queue.put(("article", item))
+        await article_queue.put(("article", item))
+
+        # 后台异步翻译，完成后更新 JSON 并推送更新
+        async def translate_and_update():
+            try:
+                translated = await translate_article(dict(item))
+                # 更新 JSON 中的翻译字段
+                existing = load_existing_intel()
+                for i, a in enumerate(existing):
+                    if a.get("source_url") == item.get("source_url"):
+                        existing[i]["cn_title"] = translated.get("cn_title", "")
+                        existing[i]["cn_summary"] = translated.get("cn_summary", "")
+                        save_intel(existing)
+                        await article_queue.put(("translate", translated))
+                        break
+            except Exception:
+                pass
+
+        asyncio.create_task(translate_and_update())
 
     async def on_progress(msg: str):
         """进度更新"""
@@ -169,6 +179,8 @@ async def api_crawl_stream(request: Request):
                     event_type, data = await asyncio.wait_for(article_queue.get(), timeout=0.5)
                     if event_type == "article":
                         yield f"event: article\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+                    elif event_type == "translate":
+                        yield f"event: translate\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
                     elif event_type == "progress":
                         yield f"event: progress\ndata: {json.dumps({'msg': data}, ensure_ascii=False)}\n\n"
                 except asyncio.TimeoutError:

@@ -52,7 +52,7 @@ def get_random_ua() -> str:
 
 
 def get_delay() -> float:
-    return 0.05 + random.uniform(0, 0.1)
+    return 0.01 + random.uniform(0, 0.03)
 
 
 def get_all_sites() -> list[dict]:
@@ -182,7 +182,7 @@ def extract_article_links(html: str, base_url: str, site_domain: str) -> list[st
                 links.add(full_url)
 
     # 最多返回 15 个链接
-    return list(links)[:15]
+    return list(links)[:6]
 
 
 def _is_valid_article_url(href: str, domain: str) -> bool:
@@ -224,8 +224,8 @@ class StreamingCrawlCoordinator:
         self.lock = CrawlLock()
         self.on_article = on_article
         self.on_progress = on_progress
-        self.timeout = 15
-        self.semaphore = asyncio.Semaphore(10)
+        self.timeout = 8
+        self.semaphore = asyncio.Semaphore(20)
         self.cancel_event = asyncio.Event()
 
     async def _progress(self, msg: str):
@@ -294,7 +294,7 @@ class StreamingCrawlCoordinator:
                 discovered.extend(links)
 
         # 去重
-        return list(dict.fromkeys(discovered))[:12]
+        return list(dict.fromkeys(discovered))[:6]
 
     async def _crawl_site(self, site: dict) -> list[dict]:
         """
@@ -349,7 +349,7 @@ class StreamingCrawlCoordinator:
 
             # 并行抓取文章详情
             if all_links:
-                tasks = [fetch_article(link) for link in all_links[:remaining * 2]]
+                tasks = [fetch_article(link) for link in all_links[:min(remaining, 8)]]
                 await asyncio.gather(*tasks, return_exceptions=True)
 
         return articles
@@ -368,7 +368,7 @@ class StreamingCrawlCoordinator:
 
         try:
             # 每批 5 个站点并行
-            batch_size = 5
+            batch_size = 10
             for i in range(0, total_sites, batch_size):
                 if self.cancel_event.is_set():
                     break

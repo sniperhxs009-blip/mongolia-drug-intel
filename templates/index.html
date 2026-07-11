@@ -299,6 +299,53 @@
                 } catch (err) {}
             });
 
+            eventSource.addEventListener('translate', function(e) {
+                try {
+                    const item = JSON.parse(e.data);
+                    // 找到对应文章卡片并更新翻译内容
+                    const url = item.source_url;
+                    if (url) {
+                        const cards = document.querySelectorAll('.article-card');
+                        for (const card of cards) {
+                            const link = card.querySelector('.source-link');
+                            if (link && link.href === url) {
+                                // 更新中文标题
+                                const cnTitleEl = card.querySelector('.article-title-cn');
+                                if (item.cn_title && item.cn_title !== item.news_title) {
+                                    if (cnTitleEl) {
+                                        cnTitleEl.textContent = item.cn_title;
+                                    } else {
+                                        const titleOrig = card.querySelector('.article-title-orig');
+                                        if (titleOrig) {
+                                            const div = document.createElement('div');
+                                            div.className = 'article-title-cn';
+                                            div.textContent = item.cn_title;
+                                            titleOrig.after(div);
+                                        }
+                                    }
+                                }
+                                // 更新中文摘要
+                                const cnSummaryEl = card.querySelector('.article-summary-cn');
+                                if (item.cn_summary && item.cn_summary !== item.content_summary) {
+                                    if (cnSummaryEl) {
+                                        cnSummaryEl.textContent = item.cn_summary;
+                                    } else {
+                                        const summary = card.querySelector('.article-summary');
+                                        if (summary) {
+                                            const div = document.createElement('div');
+                                            div.className = 'article-summary-cn';
+                                            div.textContent = item.cn_summary.substring(0, 200);
+                                            summary.after(div);
+                                        }
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                    }
+                } catch (err) {}
+            });
+
             eventSource.addEventListener('progress', function(e) {
                 try {
                     const data = JSON.parse(e.data);
