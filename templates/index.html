@@ -31,6 +31,7 @@
         .progress-bar.active { display: flex; }
         .spinner { width: 20px; height: 20px; border: 3px solid #475569; border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
         .progress-text { color: #94a3b8; font-size: 0.9em; flex: 1; }
         .table-container { background: #1e293b; border-radius: 12px; overflow: hidden; }
         table { width: 100%; border-collapse: collapse; }
@@ -140,8 +141,11 @@
     <script>
         let currentPage = 1;
         const PAGE_SIZE = 50;
+        let eventSource = null;
+        let liveCount = 0;
+        let isLiveCrawl = false;
+        const langLabels = { mn: '蒙语', zh: '中文', en: '英语' };
 
-        // 页面加载时获取统计和初始数据
         document.addEventListener('DOMContentLoaded', () => {
             loadStats();
             searchIntel();
@@ -157,10 +161,11 @@
                 document.getElementById('stat-mn').textContent = byLang.mn || 0;
                 document.getElementById('stat-zh').textContent = byLang.zh || 0;
                 document.getElementById('stat-en').textContent = byLang.en || 0;
-            } catch (e) { console.error('加载统计失败', e); }
+            } catch (e) {}
         }
 
         async function searchIntel(page = 1) {
+            if (isLiveCrawl) return;
             currentPage = page;
             const params = new URLSearchParams();
             const keyword = document.getElementById('search-keyword').value.trim();
@@ -181,10 +186,27 @@
                 renderTable(data.results || []);
                 renderPagination(data.total || 0, page);
             } catch (e) {
-                console.error('搜索失败', e);
                 document.getElementById('table-body').innerHTML =
                     '<tr><td colspan="6" class="empty-state"><div>搜索出错，请重试</div></td></tr>';
             }
+        }
+
+        function renderArticleRow(item) {
+            const title = (item.news_title || '(无标题)').substring(0, 80);
+            const time = item.publish_time || '';
+            const source = item.source_name || '';
+            const lang = item.language || '';
+            const langLabel = langLabels[lang] || lang;
+            const kw = item.keyword_hit || '';
+            const url = item.source_url || '#';
+            return `<tr style="animation: fadeIn 0.3s ease">
+                <td><strong>${escapeHtml(title)}</strong></td>
+                <td style="white-space:nowrap">${escapeHtml(time)}</td>
+                <td>${escapeHtml(source)}</td>
+                <td><span class="lang-tag lang-${lang}">${escapeHtml(langLabel)}</span></td>
+                <td>${kw ? `<span class="kw-tag">${escapeHtml(kw)}</span>` : '-'}</td>
+                <td><a class="source-link" href="${escapeHtml(url)}" target="_blank" rel="noopener">查看原文</a></td>
+            </tr>`;
         }
 
         function renderTable(results) {
@@ -193,25 +215,30 @@
                 tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="icon">📭</div><div>无匹配数据 — 尝试其他关键词或先执行采集</div></td></tr>';
                 return;
             }
+            tbody.innerHTML = results.map(renderArticleRow).join('');
+        }
 
-            const langLabels = { mn: '蒙语', zh: '中文', en: '英语' };
-            tbody.innerHTML = results.map(item => {
-                const title = (item.news_title || '(无标题)').substring(0, 80);
-                const time = item.publish_time || '';
-                const source = item.source_name || '';
-                const lang = item.language || '';
-                const langLabel = langLabels[lang] || lang;
-                const kw = item.keyword_hit || '';
-                const url = item.source_url || '#';
-                return `<tr>
-                    <td><strong>${escapeHtml(title)}</strong></td>
-                    <td style="white-space:nowrap">${escapeHtml(time)}</td>
-                    <td>${escapeHtml(source)}</td>
-                    <td><span class="lang-tag lang-${lang}">${escapeHtml(langLabel)}</span></td>
-                    <td>${kw ? `<span class="kw-tag">${escapeHtml(kw)}</span>` : '-'}</td>
-                    <td><a class="source-link" href="${escapeHtml(url)}" target="_blank" rel="noopener">查看原文</a></td>
-                </tr>`;
-            }).join('');
+        function prependArticle(item) {
+            const tbody = document.getElementById('table-body');
+            // 移除空状态行
+            const emptyRow = tbody.querySelector('.empty-state');
+            if (emptyRow) {
+                tbody.innerHTML = '';
+            }
+            tbody.insertAdjacentHTML('afterbegin', renderArticleRow(item));
+            // 限制显示 200 条防止 DOM 过大
+            while (tbody.children.length > 200) {
+                tbody.removeChild(tbody.lastChild);
+            }
+            liveCount++;
+            document.getElementById('stat-total').textContent = parseInt(document.getElementById('stat-total').textContent || 0) + 1;
+            // 更新语种计数
+            const lang = item.language || '';
+            const langMap = { mn: 'stat-mn', zh: 'stat-zh', en: 'stat-en' };
+            if (langMap[lang]) {
+                const el = document.getElementById(langMap[lang]);
+                el.textContent = parseInt(el.textContent || 0) + 1;
+            }
         }
 
         function renderPagination(total, page) {
@@ -242,28 +269,93 @@
             searchIntel(1);
         }
 
-        async function startCrawl() {
-            const btn = document.getElementById('btn-crawl');
-            btn.disabled = true;
-            btn.textContent = '采集启动中...';
+        // ============================================================
+        // SSE 实时采集
+        // ============================================================
 
-            try {
-                const resp = await fetch('/api/crawl/start', { method: 'POST' });
-                const data = await resp.json();
-                if (data.status === 'ok') {
-                    document.getElementById('progress-bar').classList.add('active');
-                    document.getElementById('progress-text').textContent = '正在初始化采集...';
-                    pollCrawlStatus();
-                } else {
-                    alert(data.message || '启动失败');
-                    btn.disabled = false;
-                    btn.textContent = '开始采集';
+        function startCrawl() {
+            if (isLiveCrawl) return;
+
+            const btn = document.getElementById('btn-crawl');
+            const progressBar = document.getElementById('progress-bar');
+            const progressText = document.getElementById('progress-text');
+
+            btn.disabled = true;
+            btn.textContent = '采集中...';
+            progressBar.classList.add('active');
+            progressText.textContent = '正在连接...';
+            liveCount = 0;
+            isLiveCrawl = true;
+
+            // 清空表格，显示采集状态
+            const tbody = document.getElementById('table-body');
+            tbody.innerHTML = `<tr><td colspan="6" class="empty-state">
+                <div class="icon">⏳</div>
+                <div>实时采集中... 已获取 <strong id="live-counter">0</strong> 条情报</div>
+            </td></tr>`;
+
+            // 连接 SSE
+            eventSource = new EventSource('/api/crawl/stream');
+
+            eventSource.addEventListener('article', function(e) {
+                try {
+                    const item = JSON.parse(e.data);
+                    prependArticle(item);
+                    // 更新计数器
+                    const counter = document.getElementById('live-counter');
+                    if (counter) counter.textContent = liveCount;
+                    progressText.textContent = `实时采集: 已获取 ${liveCount} 条情报`;
+                } catch (err) {}
+            });
+
+            eventSource.addEventListener('progress', function(e) {
+                try {
+                    const data = JSON.parse(e.data);
+                    progressText.textContent = data.msg || progressText.textContent;
+                } catch (err) {}
+            });
+
+            eventSource.addEventListener('done', function(e) {
+                try {
+                    const data = JSON.parse(e.data);
+                    progressText.textContent = `采集完成！共获取 ${data.total_articles || liveCount} 条情报`;
+                } catch (err) {
+                    progressText.textContent = `采集完成！共获取 ${liveCount} 条情报`;
                 }
-            } catch (e) {
-                alert('启动采集失败: ' + e.message);
-                btn.disabled = false;
-                btn.textContent = '开始采集';
+                finishCrawl();
+            });
+
+            eventSource.addEventListener('error', function(e) {
+                try {
+                    const data = JSON.parse(e.data);
+                    progressText.textContent = data.message || '采集出错';
+                } catch (err) {
+                    progressText.textContent = '采集连接中断';
+                }
+                finishCrawl();
+            });
+
+            eventSource.onerror = function(e) {
+                // 如果已经完成(done事件)就不会走到这里
+                if (isLiveCrawl) {
+                    progressText.textContent = liveCount > 0 ? `采集中断，已获取 ${liveCount} 条` : '采集连接失败，请重试';
+                    finishCrawl();
+                }
+            };
+        }
+
+        function finishCrawl() {
+            isLiveCrawl = false;
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
             }
+            document.getElementById('btn-crawl').disabled = false;
+            document.getElementById('btn-crawl').textContent = '开始采集';
+            setTimeout(() => {
+                document.getElementById('progress-bar').classList.remove('active');
+                loadStats();
+            }, 3000);
         }
 
         async function checkCrawlStatus() {
@@ -271,33 +363,30 @@
                 const resp = await fetch('/api/crawl/status');
                 const status = await resp.json();
                 if (status.running) {
+                    isLiveCrawl = true;
                     document.getElementById('progress-bar').classList.add('active');
                     document.getElementById('progress-text').textContent = status.progress || '采集中...';
                     document.getElementById('btn-crawl').disabled = true;
-                    pollCrawlStatus();
+                    document.getElementById('btn-crawl').textContent = '采集中...';
+                    // 定期刷新统计
+                    const interval = setInterval(async () => {
+                        try {
+                            const r = await fetch('/api/crawl/status');
+                            const s = await r.json();
+                            document.getElementById('progress-text').textContent = s.progress || '';
+                            if (!s.running) {
+                                clearInterval(interval);
+                                document.getElementById('progress-bar').classList.remove('active');
+                                document.getElementById('btn-crawl').disabled = false;
+                                document.getElementById('btn-crawl').textContent = '开始采集';
+                                isLiveCrawl = false;
+                                loadStats();
+                                searchIntel();
+                            }
+                        } catch (e) { clearInterval(interval); }
+                    }, 3000);
                 }
             } catch (e) {}
-        }
-
-        function pollCrawlStatus() {
-            const interval = setInterval(async () => {
-                try {
-                    const resp = await fetch('/api/crawl/status');
-                    const status = await resp.json();
-                    document.getElementById('progress-text').textContent = status.progress || '采集中...';
-
-                    if (!status.running) {
-                        clearInterval(interval);
-                        document.getElementById('progress-bar').classList.remove('active');
-                        document.getElementById('btn-crawl').disabled = false;
-                        document.getElementById('btn-crawl').textContent = '开始采集';
-                        loadStats();
-                        searchIntel();
-                    }
-                } catch (e) {
-                    clearInterval(interval);
-                }
-            }, 2000);
         }
     </script>
 </body>

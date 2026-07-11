@@ -61,6 +61,24 @@ def get_existing_urls(data: list[dict]) -> set[str]:
     return {item.get("source_url", "") for item in data if item.get("source_url")}
 
 
+def append_single_intel(item: dict) -> bool:
+    """
+    实时追加单条情报到 JSON 文件（用于 SSE 流式推送时立即持久化）。
+    返回 True 表示新增，False 表示重复（已存在）。
+    """
+    existing = load_existing_intel()
+    url = item.get("source_url", "")
+    existing_urls = get_existing_urls(existing)
+
+    if url and url in existing_urls:
+        return False
+
+    # 新情报插入到最前面
+    existing.insert(0, item)
+    save_intel(existing)
+    return True
+
+
 def merge_new_intel(existing: list[dict], new_items: list[dict]) -> tuple[list[dict], int]:
     """
     合并新情报到已有数据，按 source_url 去重。
