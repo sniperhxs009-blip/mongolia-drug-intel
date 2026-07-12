@@ -353,16 +353,41 @@ class StreamingCrawlCoordinator:
             return get_delay()
         return min(0.01 + fails * 0.5, 5.0) + random.uniform(0, 0.5)
 
+    async def _search_duckduckgo(self, client: httpx.AsyncClient, domain: str, keyword: str) -> list[str]:
+        """使用 DuckDuckGo HTML 搜索，按 site:domain + keyword 查找毒品相关文章"""
+        from urllib.parse import unquote
+        from bs4 import BeautifulSoup
+        links = []
+        try:
+            query = f"{keyword} site:{domain}"
+            ddg_url = f"https://html.duckduckgo.com/html/?q={query}"
+            async with self.semaphore:
+                html = await self._http_get(client, ddg_url)
+            if not html:
+                return []
+
+            soup = BeautifulSoup(html, "lxml")
+            for r in soup.select(".result__a"):
+                href = r.get("href", "")
+                m = re.search(r"uddg=(https?%3A[^&\"]+)", href)
+                if m:
+                    real_url = unquote(m.group(1))
+                    if _is_valid_article_url(real_url, domain):
+                        links.append(real_url)
+        except Exception:
+            pass
+        return links[:5]
+
     async def _discover_articles(self, client: httpx.AsyncClient, site: dict, keyword: str) -> list[str]:
         """
         Phase 1: 从搜索/列表页发现文章链接。
-        尝试搜索 URL → RSS → 首页。
+        尝试 DuckDuckGo 搜索 → 站内搜索 URL → RSS → 首页。
         """
         discovered = []
         site_url = site.get("url", "")
         domain = urlparse(site_url).netloc
 
-        # 1. 尝试搜索 URL
+        # 0. 尝试站内搜索 URL
         for template in site.get("search_urls", []):
             search_url = template.replace("{keyword}", keyword)
             async with self.semaphore:
@@ -386,7 +411,12 @@ class StreamingCrawlCoordinator:
                     discovered.extend(links)
                     break
 
-        # 3. 搜索和 RSS 都没结果时，回退到首页获取最新文章链接
+        # 3. DuckDuckGo 外部搜索（站内搜索不可用时的回退）
+        if len(discovered) < 3:
+            ddg_links = await self._search_duckduckgo(client, domain, keyword)
+            discovered.extend(ddg_links)
+
+        # 4. 搜索和 RSS 都没结果时，回退到首页获取最新文章链接
         if len(discovered) < 2:
             async with self.semaphore:
                 await asyncio.sleep(get_delay())
