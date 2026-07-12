@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>蒙古国涉毒新闻情报系统 v5.0</title>
+    <title>蒙古国涉毒新闻情报系统 v5.1</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
@@ -30,12 +30,26 @@
         .btn-stop.active { display: inline-block; }
         .btn-reset { background: #475569; color: #e2e8f0; }
         .btn-reset:hover { background: #64748b; }
-        .progress-bar { background: #334155; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; display: none; align-items: center; gap: 12px; }
-        .progress-bar.active { display: flex; }
+        .progress-bar { background: #334155; border-radius: 8px; padding: 16px; margin-bottom: 20px; display: none; }
+        .progress-bar.active { display: block; }
         .spinner { width: 20px; height: 20px; border: 3px solid #475569; border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite; flex-shrink: 0; }
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+        .progress-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
         .progress-text { color: #94a3b8; font-size: 0.9em; flex: 1; }
+        .progress-percent { color: #38bdf8; font-weight: 700; font-size: 1.1em; }
+        .progress-track { background: #0f172a; border-radius: 6px; height: 8px; margin-bottom: 12px; overflow: hidden; }
+        .progress-fill { background: linear-gradient(90deg, #10b981, #38bdf8); height: 100%; width: 0%; border-radius: 6px; transition: width 0.5s ease; }
+        .progress-detail { display: flex; gap: 8px; flex-wrap: wrap; }
+        .site-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 12px; font-size: 0.75em; background: #0f172a; color: #94a3b8; }
+        .site-badge.pending { background: #0f172a; color: #64748b; }
+        .site-badge.crawling { background: #1e3a5f; color: #38bdf8; animation: pulse 1.5s infinite; }
+        .site-badge.done { background: #064e3b20; color: #34d399; }
+        .site-badge.skip { background: #78350f20; color: #f59e0b; }
+        .site-badge .count { font-weight: 700; color: #fbbf24; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .progress-live-count { margin-top: 10px; font-size: 0.85em; color: #fbbf24; }
+        .progress-live-count strong { font-size: 1.2em; }
         .articles-list { display: flex; flex-direction: column; gap: 12px; }
         .article-card { background: #1e293b; border-radius: 10px; padding: 18px 22px; animation: fadeIn 0.3s ease; border-left: 3px solid #334155; }
         .article-card:hover { border-left-color: #38bdf8; background: #1e293bcc; }
@@ -73,7 +87,7 @@
 <body>
     <div class="header">
         <div>
-            <h1>蒙古国涉毒新闻情报系统 v5.0</h1>
+            <h1>蒙古国涉毒新闻情报系统 v5.1</h1>
             <div class="subtitle">Mongolia Drug Intelligence — 19 站点 · DeepSeek AI 识别 · 30日时效 · 双语显示</div>
         </div>
         <div class="stats-bar">
@@ -98,8 +112,14 @@
 
     <div class="container">
         <div class="progress-bar" id="progress-bar">
-            <div class="spinner"></div>
-            <div class="progress-text" id="progress-text">正在初始化采集...</div>
+            <div class="progress-header">
+                <div class="spinner"></div>
+                <div class="progress-text" id="progress-text">正在初始化采集...</div>
+                <div class="progress-percent" id="progress-percent">0%</div>
+            </div>
+            <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+            <div class="progress-detail" id="progress-detail"></div>
+            <div class="progress-live-count" id="progress-live-count"></div>
         </div>
 
         <div class="controls">
@@ -131,9 +151,12 @@
         let isLiveCrawl = false;
         let reconnectAttempt = 0;
         let reconnectTimer = null;
-        const MAX_RECONNECT_DELAY = 30000;  // 最大重连延迟 30s
-        const ADMIN_TOKEN = '';  // 如果有设置 ADMIN_TOKEN 环境变量，在此填入
+        const MAX_RECONNECT_DELAY = 30000;
+        const ADMIN_TOKEN = '';
         const langLabels = { mn: '蒙语', zh: '中文', en: '英语' };
+        // 进度追踪
+        let totalSites = 19, completedSites = 0, totalBatches = 2, currentBatch = 0;
+        let siteStatus = {};  // siteName -> 'pending'|'crawling'|'done'|'skip'
 
         document.addEventListener('DOMContentLoaded', () => {
             loadStats();
@@ -276,12 +299,14 @@
             eventSource = new EventSource(url);
 
             eventSource.addEventListener('article', function(e) {
-                reconnectAttempt = 0;  // 收到数据则重置重连计数
+                reconnectAttempt = 0;
                 try {
                     const item = JSON.parse(e.data);
                     prependArticle(item);
                     const counter = document.getElementById('live-counter');
                     if (counter) counter.textContent = liveCount;
+                    const liveCountEl = document.getElementById('progress-live-count');
+                    if (liveCountEl) liveCountEl.innerHTML = `已采集 <strong>${liveCount}</strong> 条情报`;
                     progressText.textContent = `实时采集: 已获取 ${liveCount} 条情报`;
                 } catch (err) {}
             });
@@ -332,15 +357,24 @@
 
             eventSource.addEventListener('progress', function(e) {
                 try {
-                    const data = JSON.parse(e.data);
-                    progressText.textContent = data.msg || progressText.textContent;
-                } catch (err) {}
+                    const raw = JSON.parse(e.data);
+                    // 检查是否是新的结构化进度消息
+                    if (raw.type) {
+                        handleStructuredProgress(raw);
+                    } else if (raw.msg) {
+                        progressText.textContent = raw.msg;
+                    }
+                } catch (err) {
+                    progressText.textContent = e.data || progressText.textContent;
+                }
             });
 
             eventSource.addEventListener('done', function(e) {
                 try {
                     const data = JSON.parse(e.data);
                     progressText.textContent = `采集完成！共获取 ${data.total_articles || liveCount} 条情报`;
+                    document.getElementById('progress-percent').textContent = '100%';
+                    document.getElementById('progress-fill').style.width = '100%';
                 } catch (err) {
                     progressText.textContent = `采集完成！共获取 ${liveCount} 条情报`;
                 }
@@ -384,10 +418,17 @@
             btn.textContent = '采集中...';
             stopBtn.classList.add('active');
             progressBar.classList.add('active');
-            progressText.textContent = '正在连接...';
+            progressText.textContent = '正在连接采集服务...';
             liveCount = 0;
             isLiveCrawl = true;
             reconnectAttempt = 0;
+            // 重置进度
+            totalSites = 19; completedSites = 0; totalBatches = 2; currentBatch = 0;
+            siteStatus = {};
+            document.getElementById('progress-percent').textContent = '0%';
+            document.getElementById('progress-fill').style.width = '0%';
+            document.getElementById('progress-detail').innerHTML = '';
+            document.getElementById('progress-live-count').innerHTML = '';
 
             const container = document.getElementById('articles-list');
             container.innerHTML = `<div class="empty-state">
@@ -396,6 +437,86 @@
             </div>`;
 
             connectSSE();
+        }
+
+        function handleStructuredProgress(data) {
+            const detailEl = document.getElementById('progress-detail');
+            const liveCountEl = document.getElementById('progress-live-count');
+            const percentEl = document.getElementById('progress-percent');
+            const fillEl = document.getElementById('progress-fill');
+
+            switch (data.type) {
+                case 'crawl_start':
+                    totalSites = data.total_sites || 19;
+                    totalBatches = Math.ceil(totalSites / 10);
+                    progressText.textContent = `启动采集：${totalSites} 个站点，${totalBatches} 个批次`;
+                    break;
+
+                case 'batch_start':
+                    currentBatch = data.batch;
+                    totalBatches = data.total_batches;
+                    const pct = Math.round((currentBatch - 1) / totalBatches * 100);
+                    percentEl.textContent = pct + '%';
+                    fillEl.style.width = pct + '%';
+                    progressText.textContent = `批次 ${currentBatch}/${totalBatches} 进行中...`;
+                    // 标记当前批次的站点为 crawling
+                    (data.sites || []).forEach(s => {
+                        if (!siteStatus[s]) siteStatus[s] = 'crawling';
+                    });
+                    renderSiteBadges(detailEl);
+                    break;
+
+                case 'site_start':
+                    siteStatus[data.site] = 'crawling';
+                    renderSiteBadges(detailEl);
+                    break;
+
+                case 'site_discovery':
+                    // 站点发现链接，不改变状态
+                    break;
+
+                case 'site_done':
+                    siteStatus[data.site] = data.articles > 0 ? 'done' : 'done';
+                    completedSites++;
+                    if (completedSites < totalSites) {
+                        const pct2 = Math.round((currentBatch - 1) / totalBatches * 100 + (completedSites % 10 || 10) / (10 * totalBatches) * 100);
+                        percentEl.textContent = Math.min(pct2, 99) + '%';
+                        fillEl.style.width = Math.min(pct2, 99) + '%';
+                    }
+                    renderSiteBadges(detailEl);
+                    break;
+
+                case 'batch_done':
+                    const bpct = Math.round(currentBatch / totalBatches * 100);
+                    percentEl.textContent = Math.min(bpct, 99) + '%';
+                    fillEl.style.width = Math.min(bpct, 99) + '%';
+                    if (data.total_articles > 0 || liveCount > 0) {
+                        liveCountEl.innerHTML = `已采集 <strong>${data.total_articles || liveCount}</strong> 条情报`;
+                    }
+                    break;
+
+                case 'site_skip':
+                    siteStatus[data.site] = 'skip';
+                    completedSites++;
+                    renderSiteBadges(detailEl);
+                    break;
+
+                case 'crawl_done':
+                    percentEl.textContent = '100%';
+                    fillEl.style.width = '100%';
+                    progressText.textContent = `采集完成！${data.total_sites} 个站点，共 ${data.total_articles || liveCount} 条情报`;
+                    break;
+            }
+        }
+
+        function renderSiteBadges(container) {
+            let html = '';
+            for (const [site, status] of Object.entries(siteStatus)) {
+                const cls = status === 'crawling' ? 'crawling' : status === 'done' ? 'done' : status === 'skip' ? 'skip' : 'pending';
+                const icon = status === 'crawling' ? '◎' : status === 'done' ? '✓' : status === 'skip' ? '⊘' : '○';
+                html += `<span class="site-badge ${cls}">${icon} ${site.substring(0, 12)}</span>`;
+            }
+            container.innerHTML = html;
         }
 
         function stopCrawl() {
@@ -416,10 +537,16 @@
             document.getElementById('btn-crawl').disabled = false;
             document.getElementById('btn-crawl').textContent = '开始采集';
             document.getElementById('btn-stop').classList.remove('active');
+            // 隐藏 spinner
+            const spinner = document.querySelector('.progress-bar .spinner');
+            if (spinner) spinner.style.display = 'none';
+            // 保持进度条可见 5 秒后隐藏
             setTimeout(() => {
                 document.getElementById('progress-bar').classList.remove('active');
+                if (spinner) spinner.style.display = '';
                 loadStats();
-            }, 3000);
+                searchIntel();
+            }, 5000);
         }
 
         async function checkCrawlStatus() {

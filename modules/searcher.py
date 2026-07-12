@@ -406,22 +406,21 @@ class StreamingCrawlCoordinator:
         """
         site_name = site["name"]
         if not self.rate_limiter.can_fetch(site_name):
-            await self._progress(f"  {site_name}: 已达日上限，跳过")
+            await self._progress(json.dumps({"type":"site_skip","site":site_name,"reason":"日上限"}))
             return []
 
-        keywords = get_keywords_for_site(site)  # 全部关键词
+        keywords = get_keywords_for_site(site)
         remaining = self.rate_limiter.get_remaining(site_name)
         articles = []
         seen_urls = set()
 
-        # 延迟导入
         from modules.parser import parse_article_html
         from modules.filter_module import strict_filter
 
+        await self._progress(json.dumps({"type":"site_start","site":site_name}))
+
         async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True, verify=False) as client:
-            # Phase 1: 发现文章链接（每个站点只做一次发现，不再逐关键词搜索）
             all_links = []
-            # 取第一个关键词用于 RSS 搜索
             first_kw = keywords[0] if keywords else ""
             links = await self._discover_articles(client, site, first_kw)
             for link in links:
@@ -429,7 +428,7 @@ class StreamingCrawlCoordinator:
                     seen_urls.add(link)
                     all_links.append(link)
 
-            await self._progress(f"  {site_name}: 发现 {len(all_links)} 个文章链接，开始抓取详情...")
+            await self._progress(json.dumps({"type":"site_discovery","site":site_name,"links":len(all_links)}))
 
             # Phase 2: 访问每个文章详情页
             async def fetch_article(article_url: str):
@@ -485,10 +484,9 @@ class StreamingCrawlCoordinator:
         site_results = {}
         total_articles = 0
 
-        await self._progress(f"启动全站采集：{total_sites} 个站点，并行采集...")
+        await self._progress(json.dumps({"type":"crawl_start","total_sites":total_sites}))
 
         try:
-            # 每批 5 个站点并行
             batch_size = 10
             for i in range(0, total_sites, batch_size):
                 if self.cancel_event.is_set():
@@ -496,19 +494,30 @@ class StreamingCrawlCoordinator:
                 batch = all_sites[i:i + batch_size]
                 batch_num = i // batch_size + 1
                 total_batches = (total_sites + batch_size - 1) // batch_size
-                await self._progress(f"批次 {batch_num}/{total_batches}：{', '.join(s['name'] for s in batch)}")
+                await self._progress(json.dumps({
+                    "type":"batch_start","batch":batch_num,"total_batches":total_batches,
+                    "sites":[s["name"] for s in batch]
+                }))
 
                 tasks = [self._crawl_site(site) for site in batch]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
                 for site, result in zip(batch, results):
-                    if isinstance(result, list):
-                        site_results[site["name"]] = len(result)
-                        total_articles += len(result)
-                    else:
-                        site_results[site["name"]] = 0
+                    result_count = len(result) if isinstance(result, list) else 0
+                    site_results[site["name"]] = result_count
+                    total_articles += result_count
+                    await self._progress(json.dumps({
+                        "type":"site_done","site":site["name"],"articles":result_count
+                    }))
 
-            await self._progress(f"全部采集完成！{total_sites} 个站点，共采集 {total_articles} 条情报。")
+                await self._progress(json.dumps({
+                    "type":"batch_done","batch":batch_num,"total_batches":total_batches,
+                    "total_articles":total_articles
+                }))
+
+            await self._progress(json.dumps({
+                "type":"crawl_done","total_sites":total_sites,"total_articles":total_articles
+            }))
 
         finally:
             self.lock.release()
