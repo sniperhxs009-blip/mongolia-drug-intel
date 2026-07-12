@@ -379,8 +379,8 @@ def _check_with_ai(item: dict) -> dict:
 
 
 def strict_filter(item: dict) -> bool:
-    """AI 智能过滤：日期 30 天内 + DeepSeek AI 分类"""
-    if not date_filter(item, max_days=30):
+    """AI 智能过滤：日期 90 天内 + DeepSeek AI 分类"""
+    if not date_filter(item, max_days=90):
         return False
     result = _check_with_ai(item)
     return result["pass"]

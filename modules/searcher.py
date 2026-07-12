@@ -18,7 +18,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Callable, Awaitable
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, quote
 
 import httpx
 
@@ -366,26 +366,55 @@ class StreamingCrawlCoordinator:
                 discovered.extend(links)
         return list(dict.fromkeys(discovered))[:6]
 
-    async def _discover_articles(self, client: httpx.AsyncClient, site: dict, keyword: str) -> list[str]:
+    async def _discover_articles(self, client: httpx.AsyncClient, site: dict, keywords: list[str]) -> list[str]:
         """
         Phase 1: 从站点页面发现文章链接。
-        策略：首页 + 新闻列表页。不再依赖外部搜索引擎或站内搜索。
+        策略：站内搜索（关键词）→ 首页+列表页 → RSS。
+        用多个关键词逐个尝试搜索 URL，直到找到足够链接。
         """
         site_url = site.get("url", "").rstrip("/")
         domain = urlparse(site_url).netloc
         discovered = []
 
-        # 构建要抓取的页面列表：首页 + 新闻/文章列表页
+        # Phase 1: 使用配置的搜索 URL，用毒品关键词真正搜索
+        search_urls = site.get("search_urls", [])
+        if search_urls:
+            for kw in (keywords[:3] if keywords else [""]):
+                if not kw or self.cancel_event.is_set():
+                    break
+                for search_url in search_urls[:2]:
+                    if self.cancel_event.is_set():
+                        break
+                    try:
+                        url = search_url.replace("{keyword}", quote(kw))
+                    except Exception:
+                        url = search_url
+                    async with self.semaphore:
+                        await asyncio.sleep(get_delay())
+                        html = await self._http_get(client, url)
+                    if html:
+                        links = extract_article_links(html, url, domain)
+                        for link in links:
+                            if link not in discovered:
+                                discovered.append(link)
+                    if len(discovered) >= 5:
+                        break
+                if len(discovered) >= 5:
+                    break
+
+        # Phase 2: 补充首页和新闻列表页
         pages_to_try = [site_url]
-        # 常见新闻列表页后缀
         for suffix in ["/news", "/mn", "/en", "/articles", "/archive",
                        "/news/all", "/category/news", "/mn/news", "/mn/read",
                        "/news/latest", "/latest", "/all-news"]:
             pages_to_try.append(site_url + suffix)
 
-        discovered = await self._discover_from_pages(client, site, pages_to_try[:4])
+        homepage_links = await self._discover_from_pages(client, site, pages_to_try[:3])
+        for link in homepage_links:
+            if link not in discovered:
+                discovered.append(link)
 
-        # 回退到 RSS
+        # Phase 3: RSS 回退
         if len(discovered) < 2:
             for rss_path in RSS_PATHS[:2]:
                 rss_url = site_url + rss_path
@@ -394,10 +423,12 @@ class StreamingCrawlCoordinator:
                     html = await self._http_get(client, rss_url)
                 if html and ("<rss" in html.lower() or "<feed" in html.lower() or "<item>" in html or "<entry>" in html):
                     links = _extract_rss_links(html, site_url)
-                    discovered.extend(links)
+                    for link in links:
+                        if link not in discovered:
+                            discovered.append(link)
                     break
 
-        return list(dict.fromkeys(discovered))[:6]
+        return discovered[:8]
 
     async def _crawl_site(self, site: dict) -> list[dict]:
         """
@@ -421,8 +452,7 @@ class StreamingCrawlCoordinator:
 
         async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True, verify=False) as client:
             all_links = []
-            first_kw = keywords[0] if keywords else ""
-            links = await self._discover_articles(client, site, first_kw)
+            links = await self._discover_articles(client, site, keywords)
             for link in links:
                 if link not in seen_urls:
                     seen_urls.add(link)
