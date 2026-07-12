@@ -445,71 +445,58 @@ class StreamingCrawlCoordinator:
         """3 秒超时快速检查站点是否可达，避免长时间等待不可达站点"""
         site_url = site.get("url", "").rstrip("/")
         try:
-            async with httpx.AsyncClient(timeout=3, follow_redirects=True, verify=False) as client:
+            async with httpx.AsyncClient(timeout=5, follow_redirects=True, verify=False) as client:
                 resp = await client.get(site_url, headers={
                     "User-Agent": get_random_ua(),
                     "Accept": "text/html",
                 })
-                return resp.status_code == 200
+                return 200 <= resp.status_code < 400
         except Exception:
             return False
 
     async def _sample_montsame_ids(self, client: httpx.AsyncClient, base_url: str, drug_keywords: list[str]) -> list[str]:
         """montsame.mn 专用：通过文章 ID 采样发现涉毒文章。
         montsame.mn 文章 URL 格式为 /mn/read/{数字ID}，ID 递增。
-        从首页获取最新 ID，向后每 50 个 ID 采样一次，覆盖约 90 天。
+        从首页获取最新 ID，向后每 100 个 ID 采样一次，覆盖约 90 天。
         只返回标题含毒品关键词的文章 URL。
         """
         discovered = []
         try:
-            # 获取首页，提取所有文章 ID
-            langs = ["/mn/", "/en/", "/ru/"]
-            max_id = 0
-            for lang in langs:
-                if self.cancel_event.is_set():
-                    return discovered
-                html = await self._http_get(client, base_url + lang)
-                if not html:
-                    continue
-                ids = re.findall(r'/read/(\d+)', html)
-                for n in [int(i) for i in ids]:
-                    if n > max_id:
-                        max_id = n
-
-            if max_id == 0:
+            # 获取首页，提取最新文章 ID
+            html = await self._http_get(client, base_url + "/mn/")
+            if not html:
                 return discovered
+            ids = re.findall(r'/read/(\d+)', html)
+            if not ids:
+                return discovered
+            max_id = max(int(i) for i in ids)
+            log.info("montsame.mn 采样: 最新ID=%d, 回溯3000个ID, 每100个采样", max_id)
 
-            # 每 50 个 ID 采样一次，回溯 5000 个 ID（约 90 天 × 55篇/天）
-            sample_ids = range(max_id, max(0, max_id - 5000), -50)
-            sample_count = 0
-            for article_id in sample_ids:
-                if self.cancel_event.is_set() or sample_count >= 20:
+            # 每 100 个 ID 采样一次，回溯 3000 个 ID（约 55 天），共 30 次
+            for article_id in range(max_id, max(0, max_id - 3000), -100):
+                if self.cancel_event.is_set() or len(discovered) >= 5:
                     break
                 for lang_path in ["/mn/read/", "/en/read/"]:
                     url = f"{base_url}{lang_path}{article_id}"
                     try:
-                        async with self.semaphore:
-                            await asyncio.sleep(0.05)  # 轻延迟避免触发反爬
-                            resp = await client.get(url, headers={
-                                "User-Agent": get_random_ua(),
-                                "Accept": "text/html",
-                            }, timeout=3)
-                        if resp.status_code == 200:
-                            sample_count += 1
-                            # 只取前 2KB 检查标题（足够包含 <title>）
-                            snippet = resp.text[:2000] if resp.text else ""
+                        resp = await client.get(url, headers={
+                            "User-Agent": get_random_ua(),
+                            "Accept": "text/html",
+                        }, timeout=3)
+                        if resp.status_code == 200 and resp.text:
+                            snippet = resp.text[:2000]
                             title_match = re.search(r'<title>(.*?)</title>', snippet, re.DOTALL)
                             title = title_match.group(1).strip() if title_match else ""
                             title = re.sub(r'<[^>]+>', '', title)
-                            # 标题含毒品关键词？
                             if any(kw.lower() in title.lower() for kw in drug_keywords):
+                                log.info("montsame.mn 采样命中: ID=%d %s", article_id, title[:60])
                                 discovered.append(url)
-                                if len(discovered) >= 5:
-                                    return discovered
+                                break
                     except Exception:
                         continue
-        except Exception:
-            pass
+                await asyncio.sleep(0.05)
+        except Exception as e:
+            log.warning("montsame.mn 采样异常: %s", e)
         return discovered
 
     async def _crawl_site(self, site: dict) -> list[dict]:
