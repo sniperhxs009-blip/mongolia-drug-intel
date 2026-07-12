@@ -252,7 +252,7 @@ def _is_valid_article_url(href: str, domain: str) -> bool:
     # 排除明显非文章链接
     skip_patterns = [
         "/search", "/login", "/register", "/about", "/contact",
-        "/category", "/tag", "/author", "/page/", "wp-admin",
+        "/category", "/tag", "/author", "/page/", "/more/", "wp-admin",
         "/cdn-cgi", "#", "facebook.com", "twitter.com", "youtube.com",
     ]
     href_lower = href.lower()
@@ -365,6 +365,15 @@ class StreamingCrawlCoordinator:
                     links = _extract_rss_links(html, site_url)
                     discovered.extend(links)
                     break
+
+        # 3. 搜索和 RSS 都没结果时，回退到首页获取最新文章链接
+        if len(discovered) < 2:
+            async with self.semaphore:
+                await asyncio.sleep(get_delay())
+                html = await self._http_get(client, site_url)
+            if html:
+                links = extract_article_links(html, site_url, domain)
+                discovered.extend(links)
 
         # 去重
         return list(dict.fromkeys(discovered))[:6]
