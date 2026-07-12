@@ -659,9 +659,9 @@ def _extract_rss_links_with_filter(xml_text: str, base_url: str, drug_keywords: 
         else:
             other_links.append(link)
 
-    # 毒品相关优先，其他兜底
-    result = drug_links + other_links
-    return list(dict.fromkeys(result))[:15]
+    # 毒品相关优先，其他只取少量兜底（避免大量非涉毒文章涌入）
+    result = drug_links + other_links[:3]
+    return list(dict.fromkeys(result))[:10]
 
 
 # ============================================================

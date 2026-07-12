@@ -83,6 +83,8 @@ _DEFAULT_EXCLUSION = [
     "витамин", "хүнсний нэмэлт", "биологийн идэвхт",
     "сурталчилгаа", "зар",
     "төрийн албан", "төрийн захиргаа", "нийтийн",
+            "наадам", "баяр наадмын", "хурдан морь", "бөхийн",
+            "ёслол", "мэндчилгээ", "цэнгэлдэх", "уралдаан",
     "副作用", "不良反应", "疫苗", "新冠", "冠状",
     "注册证", "质量检测", "药品注册", "GMP认证",
     "伦理投诉", "道德投诉", "培训", "研讨会",
@@ -228,7 +230,9 @@ def ai_classify(item: dict) -> dict:
     summary = item.get("content_summary", "")
     source = item.get("source_name", "")
     url = item.get("source_url", "")
-    text = f"{title} {summary} {source}"
+    # 只用标题+摘要做关键词匹配，来源名不参与（避免"中国国家禁毒委员会办公室"
+    # 之类的机构名本身含"禁毒"导致所有该源文章全通过）
+    text = f"{title} {summary}"
 
     if not title.strip() and len(summary.strip()) < 30:
         log.debug("内容过短，拒绝: %s", title[:50])
