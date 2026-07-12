@@ -253,7 +253,12 @@ async def api_crawl_stream(request: Request):
                     elif event_type == "translate":
                         yield f"event: translate\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
                     elif event_type == "progress":
-                        yield f"event: progress\ndata: {json.dumps({'msg': data}, ensure_ascii=False)}\n\n"
+                        # 尝试解析为 JSON（结构化进度），否则包装为 msg 字符串
+                        try:
+                            parsed = json.loads(data)
+                            yield f"event: progress\ndata: {json.dumps(parsed, ensure_ascii=False)}\n\n"
+                        except (json.JSONDecodeError, TypeError):
+                            yield f"event: progress\ndata: {json.dumps({'msg': data}, ensure_ascii=False)}\n\n"
                 except asyncio.TimeoutError:
                     # 发送心跳保持连接
                     if crawl_task.done():
