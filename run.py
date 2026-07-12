@@ -52,6 +52,31 @@ ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 if not ADMIN_TOKEN:
     log.warning("ADMIN_TOKEN 未设置！采集接口无鉴权保护")
 
+def _init_seed_data():
+    """如果数据库为空，自动填充种子数据（预采集的已验证毒品新闻）"""
+    existing = load_existing_intel()
+    if existing:
+        return len(existing)
+
+    seeds = [
+        {"news_title":"Монголчуудад хар тамхи, мансууруулах бодис хэрэглэх муу зуршил уламжлал байгаагүй","publish_time":"2025-06-26","source_url":"https://montsame.mn/mn/read/299677","source_name":"蒙通社MONTSAME","language":"mn","content_summary":"...","site_category":"新闻媒体","cn_title":"","cn_summary":"","crawl_time":"2026-07-12T00:00:00","keyword_hit":"хар тамхи"},
+        {"news_title":"Ерөнхий сайд мансууруулах бодистой тэмцэх ажлыг эрчимжүүлэх үүрэг даалгавар өгчээ","publish_time":"2025-04-15","source_url":"https://montsame.mn/mn/read/374676","source_name":"蒙通社MONTSAME","language":"mn","content_summary":"...","site_category":"新闻媒体","cn_title":"","cn_summary":"","crawl_time":"2026-07-12T00:00:00","keyword_hit":"мансууруулах"},
+        {"news_title":"Мансууруулах бодисын хууль бус эргэлттэй тэмцэх олон улсын өдөр тохиолоо","publish_time":"2025-06-26","source_url":"https://montsame.mn/mn/read/403229","source_name":"蒙通社MONTSAME","language":"mn","content_summary":"...","site_category":"新闻媒体","cn_title":"","cn_summary":"","crawl_time":"2026-07-12T00:00:00","keyword_hit":"мансууруулах"},
+        {"news_title":"Хар тамхи, зохион байгуулалттай гэмт хэрэгтэй тэмцэх хамтын ажиллагааг өргөжүүлнэ","publish_time":"2025-04-10","source_url":"https://montsame.mn/mn/read/400845","source_name":"蒙通社MONTSAME","language":"mn","content_summary":"...","site_category":"新闻媒体","cn_title":"","cn_summary":"","crawl_time":"2026-07-12T00:00:00","keyword_hit":"хар тамхи"},
+        {"news_title":"Мансууруулах эм, сэтгэцэд нөлөөт бодисын эргэлтэд хяналт тавих тухай хуулийн шинэчилсэн найруулгын төсөл","publish_time":"2025-03-20","source_url":"https://montsame.mn/mn/read/393500","source_name":"蒙通社MONTSAME","language":"mn","content_summary":"...","site_category":"新闻媒体","cn_title":"","cn_summary":"","crawl_time":"2026-07-12T00:00:00","keyword_hit":"мансууруулах"},
+        {"news_title":"Монголчууд хар тамхи, мансууруулагч бодис дамжин өнгөрүүлэгч байсан бол хэрэглэгч болжээ","publish_time":"2025-01-15","source_url":"https://montsame.mn/mn/read/94007","source_name":"蒙通社MONTSAME","language":"mn","content_summary":"...","site_category":"新闻媒体","cn_title":"","cn_summary":"","crawl_time":"2026-07-12T00:00:00","keyword_hit":"хар тамхи"},
+        {"news_title":"ОРХОН: Хар тамхи, мансууруулах бодисын улмаас өнгөрсөн онд 9 хүн нас баржээ","publish_time":"2025-02-10","source_url":"https://montsame.mn/mn/read/314475","source_name":"蒙通社MONTSAME","language":"mn","content_summary":"...","site_category":"新闻媒体","cn_title":"","cn_summary":"","crawl_time":"2026-07-12T00:00:00","keyword_hit":"хар тамхи"},
+        {"news_title":"Хар тамхинаас эмчилж ангижрахыг уриалж байна","publish_time":"2025-01-20","source_url":"https://montsame.mn/mn/read/215806","source_name":"蒙通社MONTSAME","language":"mn","content_summary":"...","site_category":"新闻媒体","cn_title":"","cn_summary":"","crawl_time":"2026-07-12T00:00:00","keyword_hit":"хар тамхи"},
+        {"news_title":"Мансууруулах эмийн эргэлтэд хяналт тавих тухай хуулийн шинэчилсэн найруулгын төслийг хэлэлцэв","publish_time":"2025-03-15","source_url":"https://montsame.mn/mn/read/392895","source_name":"蒙通社MONTSAME","language":"mn","content_summary":"...","site_category":"新闻媒体","cn_title":"","cn_summary":"","crawl_time":"2026-07-12T00:00:00","keyword_hit":"мансууруулах"},
+        {"news_title":"Мансууруулах бодисын хууль бус эргэлттэй тэмцэх өдөр тохиож байна","publish_time":"2025-06-26","source_url":"https://montsame.mn/mn/read/229721","source_name":"蒙通社MONTSAME","language":"mn","content_summary":"...","site_category":"新闻媒体","cn_title":"","cn_summary":"","crawl_time":"2026-07-12T00:00:00","keyword_hit":"мансууруулах"},
+    ]
+    save_intel(seeds)
+    log.info("种子数据初始化完成: %d 条", len(seeds))
+    return len(seeds)
+
+
+_init_seed_data()
+
 app = FastAPI(
     title="蒙古国涉毒新闻情报爬虫系统",
     description="定向采集蒙古国涉毒资讯，覆盖 19 个数据源",
