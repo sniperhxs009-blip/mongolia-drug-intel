@@ -412,14 +412,15 @@ class StreamingCrawlCoordinator:
                 if link not in discovered:
                     discovered.append(link)
 
-        # Phase 2: 使用配置的搜索 URL，用毒品关键词搜索
+        # Phase 2: 使用配置的搜索 URL，用毒品关键词搜索（扩大关键词数量）
         search_urls = site.get("search_urls", [])
         if search_urls and len(discovered) < 5:
-            for kw in (keywords[:2] if keywords else [""]):
-                if not kw or self.cancel_event.is_set():
+            search_kws = [kw for kw in (keywords[:4] if keywords else []) if kw.strip()]
+            for kw in search_kws:
+                if self.cancel_event.is_set() or len(discovered) >= 5:
                     break
-                for search_url in search_urls[:2]:
-                    if self.cancel_event.is_set():
+                for search_url in search_urls[:3]:
+                    if self.cancel_event.is_set() or len(discovered) >= 5:
                         break
                     try:
                         url = search_url.replace("{keyword}", quote(kw))
@@ -433,22 +434,17 @@ class StreamingCrawlCoordinator:
                         for link in links:
                             if link not in discovered:
                                 discovered.append(link)
-                    if len(discovered) >= 5:
-                        break
-                if len(discovered) >= 5:
-                    break
 
-        # Phase 3: 补充首页和新闻列表页
-        if len(discovered) < 5:
-            pages_to_try = [site_url]
-            for suffix in ["/news", "/mn", "/en", "/articles",
-                           "/news/all", "/mn/news", "/mn/read",
-                           "/news/latest", "/latest"]:
-                pages_to_try.append(site_url + suffix)
-            homepage_links = await self._discover_from_pages(client, site, pages_to_try[:3])
-            for link in homepage_links:
-                if link not in discovered:
-                    discovered.append(link)
+        # Phase 3: 兜底 — 仅尝试首页，最多取 3 个链接（宁少勿错）
+        if len(discovered) < 3:
+            async with self.semaphore:
+                await asyncio.sleep(get_delay())
+                html = await self._http_get(client, site_url)
+            if html:
+                links = extract_article_links(html, site_url, domain)
+                for link in links[:3]:
+                    if link not in discovered:
+                        discovered.append(link)
 
         return discovered[:8]
 
@@ -466,10 +462,9 @@ class StreamingCrawlCoordinator:
             return False
 
     async def _sample_montsame_ids(self, client: httpx.AsyncClient, base_url: str, drug_keywords: list[str]) -> list[str]:
-        """montsame.mn 专用：通过文章 ID 采样发现涉毒文章。
-        montsame.mn 文章 URL 格式为 /mn/read/{数字ID}，ID 递增。
-        从首页获取最新 ID，向后每 25 个 ID 采样一次，覆盖约 55 天。
-        只返回标题含毒品关键词的文章 URL。
+        """montsame.mn 专用：通过文章 ID 并行采样发现涉毒文章。
+        从首页获取最新 ID，向后每 20 个 ID 采样，覆盖约 40 天（2000 个 ID）。
+        并行批量请求（受 semaphore 控制），发现 5 篇即停止。
         """
         discovered = []
         try:
@@ -480,32 +475,38 @@ class StreamingCrawlCoordinator:
             if not ids:
                 return discovered
             max_id = max(int(i) for i in ids)
-            log.info("montsame.mn 采样: 最新ID=%d, 回溯3000", max_id)
+            log.info("montsame.mn 并行采样: 最新ID=%d, 回溯2000", max_id)
 
-            # 每 25 个 ID 采样一次，回溯 3000 个 ID（约 55 天），共 120 次
-            for article_id in range(max_id, max(0, max_id - 3000), -25):
+            # 生成候选 URL 列表（每 20 个 ID，MN + EN 两个语言版本）
+            candidates = []
+            for article_id in range(max_id, max(0, max_id - 2000), -20):
+                for lang_path in ["/mn/read/", "/en/read/"]:
+                    candidates.append(f"{base_url}{lang_path}{article_id}")
+
+            async def _check_one(url: str):
+                if self.cancel_event.is_set() or len(discovered) >= 5:
+                    return
+                async with self.semaphore:
+                    html_text = await self._http_get(client, url)
+                if html_text and len(discovered) < 5:
+                    snippet = html_text[:2000]
+                    title_match = re.search(r'<title>(.*?)</title>', snippet, re.DOTALL)
+                    title = title_match.group(1).strip() if title_match else ""
+                    title = re.sub(r'<[^>]+>', '', title)
+                    if any(kw.lower() in title.lower() for kw in drug_keywords):
+                        log.info("montsame.mn 采样命中: %s — %s", url.rsplit("/", 1)[-1], title[:60])
+                        discovered.append(url)
+
+            # 分批并行执行，每批 15 个并发
+            batch_size = 15
+            for i in range(0, len(candidates), batch_size):
                 if self.cancel_event.is_set() or len(discovered) >= 5:
                     break
-                for lang_path in ["/mn/read/", "/en/read/"]:
-                    url = f"{base_url}{lang_path}{article_id}"
-                    try:
-                        resp = await client.get(url, headers={
-                            "User-Agent": get_random_ua(),
-                            "Accept": "text/html,application/xhtml+xml",
-                            "Accept-Language": "mn-MN,mn;q=0.9,en-US;q=0.8",
-                        }, timeout=4)
-                        if resp.status_code == 200 and resp.text:
-                            snippet = resp.text[:2000]
-                            title_match = re.search(r'<title>(.*?)</title>', snippet, re.DOTALL)
-                            title = title_match.group(1).strip() if title_match else ""
-                            title = re.sub(r'<[^>]+>', '', title)
-                            if any(kw.lower() in title.lower() for kw in drug_keywords):
-                                log.info("montsame.mn 采样命中: ID=%d %s", article_id, title[:60])
-                                discovered.append(url)
-                                break
-                    except Exception:
-                        continue
-                await asyncio.sleep(0.03)
+                batch = candidates[i:i + batch_size]
+                await asyncio.gather(*[_check_one(u) for u in batch], return_exceptions=True)
+                if i + batch_size < len(candidates):
+                    await asyncio.sleep(0.02)
+
         except Exception as e:
             log.warning("montsame.mn 采样异常: %s", e)
         return discovered
