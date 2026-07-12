@@ -26,6 +26,17 @@ from modules.logger import get_logger
 
 log = get_logger("searcher")
 
+# 延迟加载以避免循环导入，在 _discover_articles 中首次引用时赋值
+_STRONG_DRUG_WORDS = None
+
+
+def _get_drug_keywords():
+    global _STRONG_DRUG_WORDS
+    if _STRONG_DRUG_WORDS is None:
+        from modules.filter_module import STRONG_DRUG_WORDS as sdw
+        _STRONG_DRUG_WORDS = list(sdw)
+    return _STRONG_DRUG_WORDS
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_DIR = BASE_DIR / "config"
 DATA_DIR = BASE_DIR / "data"
@@ -375,7 +386,7 @@ class StreamingCrawlCoordinator:
         site_url = site.get("url", "").rstrip("/")
         domain = urlparse(site_url).netloc
         discovered = []
-        from modules.filter_module import STRONG_DRUG_WORDS
+        drug_kw = _get_drug_keywords()
 
         # Phase 1: RSS 优先（标题关键词预筛，最快定位涉毒文章）
         for rss_path in RSS_PATHS:
@@ -387,7 +398,7 @@ class StreamingCrawlCoordinator:
                 html = await self._http_get(client, rss_url)
             if html and ("<rss" in html.lower() or "<feed" in html.lower() or "<item>" in html or "<entry>" in html):
                 # 用毒品关键词预筛 RSS 标题，只取相关链接
-                links = _extract_rss_links_with_filter(html, site_url, STRONG_DRUG_WORDS)
+                links = _extract_rss_links_with_filter(html, site_url, drug_kw)
                 for link in links:
                     if link not in discovered:
                         discovered.append(link)
@@ -396,7 +407,7 @@ class StreamingCrawlCoordinator:
 
         # Phase 1.5: montsame.mn 文章ID采样（首页只有当日新闻，ID采样可回溯90天）
         if "montsame.mn" in domain and len(discovered) < 5:
-            sampled = await self._sample_montsame_ids(client, site_url, STRONG_DRUG_WORDS)
+            sampled = await self._sample_montsame_ids(client, site_url, drug_kw)
             for link in sampled:
                 if link not in discovered:
                     discovered.append(link)
@@ -480,8 +491,9 @@ class StreamingCrawlCoordinator:
                     try:
                         resp = await client.get(url, headers={
                             "User-Agent": get_random_ua(),
-                            "Accept": "text/html",
-                        }, timeout=3)
+                            "Accept": "text/html,application/xhtml+xml",
+                            "Accept-Language": "mn-MN,mn;q=0.9,en-US;q=0.8",
+                        }, timeout=4)
                         if resp.status_code == 200 and resp.text:
                             snippet = resp.text[:2000]
                             title_match = re.search(r'<title>(.*?)</title>', snippet, re.DOTALL)
