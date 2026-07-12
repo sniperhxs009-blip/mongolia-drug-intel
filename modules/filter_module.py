@@ -287,45 +287,34 @@ def ai_classify(item: dict) -> dict:
     }
 
     # === 第6步：综合判定 ===
-    # 硬性门禁：必须命中至少 1 个强毒品词或 1 个弱药字
+    # 硬性门禁1：必须命中至少 1 个强毒品词或 1 个弱药字
     has_any_drug_word = bool(strong_hits) or has_weak_drug
     if not has_any_drug_word:
         log.debug("FILTER-REJECT | 无毒品词 | %s", url[:80])
         return {"pass": False, "score": total_score, "reason": "无任何毒品/药物相关关键词", "hits": hit_detail}
 
-    # 情况A：有强毒品词 → 直接通过
+    # 硬性门禁2：必须命中至少 1 个蒙古地理锚点（所有情况都需要）
+    if not geo_hits:
+        log.debug("FILTER-REJECT | 无蒙古地理锚点 | %s", url[:80])
+        return {"pass": False, "score": total_score, "reason": "无蒙古地理锚点", "hits": hit_detail}
+
+    # 情况A：有强毒品词 + 地理 → 通过
     if strong_hits:
-        if geo_hits:
-            log.info("FILTER-PASS | 强毒品+地理 | 词=%s 得分=%d | %s", strong_hits[:2], total_score, url[:80])
-            return {"pass": True, "score": total_score, "reason": f"强毒品词+地理: {strong_hits[:2]}", "hits": hit_detail}
-        if enforcement_hits:
-            log.info("FILTER-PASS | 强毒品+执法 | 词=%s 得分=%d | %s", strong_hits[:2], total_score, url[:80])
-            return {"pass": True, "score": total_score, "reason": f"强毒品词+执法: {strong_hits[:2]}", "hits": hit_detail}
-        log.info("FILTER-PASS | 强毒品 | 词=%s 得分=%d | %s", strong_hits[:2], total_score, url[:80])
-        return {"pass": True, "score": total_score, "reason": f"强毒品词: {strong_hits[:2]}", "hits": hit_detail}
+        log.info("FILTER-PASS | 强毒品+地理 | 词=%s 得分=%d | %s", strong_hits[:2], total_score, url[:80])
+        return {"pass": True, "score": total_score, "reason": f"强毒品词+地理: {strong_hits[:2]}", "hits": hit_detail}
 
     # 情况B：弱药字 + 执法上下文 + 地理锚点 → 通过
-    if has_weak_drug and enforcement_hits and geo_hits:
+    if has_weak_drug and enforcement_hits:
         log.info("FILTER-PASS | 药+执法+地理 | 执法=%s 得分=%d | %s", enforcement_hits[:2], total_score, url[:80])
         return {"pass": True, "score": total_score, "reason": f"药字+执法+地理: {enforcement_hits[:2]}", "hits": hit_detail}
 
-    # 情况C：弱药字 + 强执法上下文（2个以上执法词） + 地理 → 通过
-    if has_weak_drug and len(enforcement_hits) >= 2 and geo_hits:
-        log.info("FILTER-PASS | 药+强执法+地理 | 执法=%s 得分=%d | %s", enforcement_hits[:2], total_score, url[:80])
-        return {"pass": True, "score": total_score, "reason": f"药字+强执法+地理: {enforcement_hits[:2]}", "hits": hit_detail}
-
-    # 情况D：弱药字 + 毒品上下文词（康复/治疗/成瘾）+ 地理 → 通过
-    if has_weak_drug and has_drug_context and geo_hits:
+    # 情况C：弱药字 + 毒品上下文词（康复/治疗/成瘾）+ 地理 → 通过
+    if has_weak_drug and has_drug_context:
         log.info("FILTER-PASS | 药+上下文+地理 | 上下文=%s 得分=%d | %s", supporting_hits[:2], total_score, url[:80])
         return {"pass": True, "score": total_score, "reason": f"药字+毒品上下文+地理: {supporting_hits[:2]}", "hits": hit_detail}
 
-    # 情况E：弱药字但无执法也无地理 → 拒绝（纯医药内容）
-    if has_weak_drug and not enforcement_hits and not geo_hits:
-        log.debug("FILTER-REJECT | 纯医药 | %s", url[:80])
-        return {"pass": False, "score": total_score, "reason": "纯医药词汇无执法/地理上下文", "hits": hit_detail}
-
-    # 情况F：弱药字 + 地理 但无执法也无上下文 → 医药监管页面，拒绝
-    if has_weak_drug and geo_hits and not enforcement_hits and not has_drug_context:
+    # 情况D：弱药字 + 地理 但无执法也无上下文 → 医药监管页面，拒绝
+    if has_weak_drug and not enforcement_hits and not has_drug_context:
         log.debug("FILTER-REJECT | 医药+地理无执法 | %s", url[:80])
         return {"pass": False, "score": total_score, "reason": "医药词汇+地理但无毒品上下文", "hits": hit_detail}
 
