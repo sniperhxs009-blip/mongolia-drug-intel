@@ -353,49 +353,42 @@ class StreamingCrawlCoordinator:
             return get_delay()
         return min(0.01 + fails * 0.5, 5.0) + random.uniform(0, 0.5)
 
-    async def _search_duckduckgo(self, client: httpx.AsyncClient, domain: str, keyword: str) -> list[str]:
-        """使用 DuckDuckGo HTML 搜索，按 site:domain + keyword 查找毒品相关文章"""
-        from urllib.parse import unquote
-        from bs4 import BeautifulSoup
-        links = []
-        try:
-            query = f"{keyword} site:{domain}"
-            ddg_url = f"https://html.duckduckgo.com/html/?q={query}"
+    async def _discover_from_pages(self, client: httpx.AsyncClient, site: dict, urls: list[str]) -> list[str]:
+        """从给定的页面 URL 列表中提取文章链接"""
+        discovered = []
+        domain = urlparse(site.get("url", "")).netloc
+        for url in urls:
             async with self.semaphore:
-                html = await self._http_get(client, ddg_url)
-            if not html:
-                return []
-
-            soup = BeautifulSoup(html, "lxml")
-            for r in soup.select(".result__a"):
-                href = r.get("href", "")
-                m = re.search(r"uddg=(https?%3A[^&\"]+)", href)
-                if m:
-                    real_url = unquote(m.group(1))
-                    if _is_valid_article_url(real_url, domain):
-                        links.append(real_url)
-        except Exception:
-            pass
-        return links[:5]
+                await asyncio.sleep(get_delay())
+                html = await self._http_get(client, url)
+            if html:
+                links = extract_article_links(html, url, domain)
+                discovered.extend(links)
+        return list(dict.fromkeys(discovered))[:6]
 
     async def _discover_articles(self, client: httpx.AsyncClient, site: dict, keyword: str) -> list[str]:
         """
-        Phase 1: 从搜索/列表页发现文章链接。
-        DuckDuckGo 搜索引擎优先 → RSS → 首页。
-        注：站内搜索 URL 对大多数蒙古网站无效，已废弃。
+        Phase 1: 从站点页面发现文章链接。
+        策略：首页 + 新闻列表页。不再依赖外部搜索引擎或站内搜索。
         """
-        discovered = []
-        site_url = site.get("url", "")
+        site_url = site.get("url", "").rstrip("/")
         domain = urlparse(site_url).netloc
+        discovered = []
 
-        # 1. DuckDuckGo 外部搜索（最可靠的毒品文章发现方式）
-        ddg_links = await self._search_duckduckgo(client, domain, keyword)
-        discovered.extend(ddg_links)
+        # 构建要抓取的页面列表：首页 + 新闻/文章列表页
+        pages_to_try = [site_url]
+        # 常见新闻列表页后缀
+        for suffix in ["/news", "/mn", "/en", "/articles", "/archive",
+                       "/news/all", "/category/news", "/mn/news", "/mn/read",
+                       "/news/latest", "/latest", "/all-news"]:
+            pages_to_try.append(site_url + suffix)
 
-        # 2. 尝试 RSS
-        if len(discovered) < 3:
-            for rss_path in RSS_PATHS[:2]:  # 只试前2个，节省时间
-                rss_url = site_url.rstrip("/") + rss_path
+        discovered = await self._discover_from_pages(client, site, pages_to_try[:4])
+
+        # 回退到 RSS
+        if len(discovered) < 2:
+            for rss_path in RSS_PATHS[:2]:
+                rss_url = site_url + rss_path
                 async with self.semaphore:
                     await asyncio.sleep(get_delay())
                     html = await self._http_get(client, rss_url)
@@ -404,16 +397,6 @@ class StreamingCrawlCoordinator:
                     discovered.extend(links)
                     break
 
-        # 3. 回退到首页（DDG 和 RSS 都没结果时）
-        if len(discovered) < 2:
-            async with self.semaphore:
-                await asyncio.sleep(get_delay())
-                html = await self._http_get(client, site_url)
-            if html:
-                links = extract_article_links(html, site_url, domain)
-                discovered.extend(links)
-
-        # 去重
         return list(dict.fromkeys(discovered))[:6]
 
     async def _crawl_site(self, site: dict) -> list[dict]:
@@ -436,16 +419,15 @@ class StreamingCrawlCoordinator:
         from modules.filter_module import strict_filter
 
         async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True, verify=False) as client:
-            # Phase 1: 发现文章链接
+            # Phase 1: 发现文章链接（每个站点只做一次发现，不再逐关键词搜索）
             all_links = []
-            for kw in keywords:
-                if len(all_links) >= remaining * 2:
-                    break
-                links = await self._discover_articles(client, site, kw)
-                for link in links:
-                    if link not in seen_urls:
-                        seen_urls.add(link)
-                        all_links.append(link)
+            # 取第一个关键词用于 RSS 搜索
+            first_kw = keywords[0] if keywords else ""
+            links = await self._discover_articles(client, site, first_kw)
+            for link in links:
+                if link not in seen_urls:
+                    seen_urls.add(link)
+                    all_links.append(link)
 
             await self._progress(f"  {site_name}: 发现 {len(all_links)} 个文章链接，开始抓取详情...")
 
