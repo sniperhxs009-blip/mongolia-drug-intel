@@ -457,12 +457,11 @@ class StreamingCrawlCoordinator:
     async def _sample_montsame_ids(self, client: httpx.AsyncClient, base_url: str, drug_keywords: list[str]) -> list[str]:
         """montsame.mn 专用：通过文章 ID 采样发现涉毒文章。
         montsame.mn 文章 URL 格式为 /mn/read/{数字ID}，ID 递增。
-        从首页获取最新 ID，向后每 100 个 ID 采样一次，覆盖约 90 天。
+        从首页获取最新 ID，向后每 25 个 ID 采样一次，覆盖约 55 天。
         只返回标题含毒品关键词的文章 URL。
         """
         discovered = []
         try:
-            # 获取首页，提取最新文章 ID
             html = await self._http_get(client, base_url + "/mn/")
             if not html:
                 return discovered
@@ -470,10 +469,10 @@ class StreamingCrawlCoordinator:
             if not ids:
                 return discovered
             max_id = max(int(i) for i in ids)
-            log.info("montsame.mn 采样: 最新ID=%d, 回溯3000个ID, 每100个采样", max_id)
+            log.info("montsame.mn 采样: 最新ID=%d, 回溯3000", max_id)
 
-            # 每 100 个 ID 采样一次，回溯 3000 个 ID（约 55 天），共 30 次
-            for article_id in range(max_id, max(0, max_id - 3000), -100):
+            # 每 25 个 ID 采样一次，回溯 3000 个 ID（约 55 天），共 120 次
+            for article_id in range(max_id, max(0, max_id - 3000), -25):
                 if self.cancel_event.is_set() or len(discovered) >= 5:
                     break
                 for lang_path in ["/mn/read/", "/en/read/"]:
@@ -494,7 +493,7 @@ class StreamingCrawlCoordinator:
                                 break
                     except Exception:
                         continue
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(0.03)
         except Exception as e:
             log.warning("montsame.mn 采样异常: %s", e)
         return discovered
