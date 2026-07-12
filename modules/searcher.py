@@ -414,6 +414,13 @@ class StreamingCrawlCoordinator:
                 if link not in discovered:
                     discovered.append(link)
 
+        # Phase 1.6: see.mn 文章ID采样（URL 格式 see.mn/{id}.html，ID 递增）
+        if "see.mn" in domain and len(discovered) < 5:
+            sampled = await self._sample_see_ids(client, site_url, drug_kw)
+            for link in sampled:
+                if link not in discovered:
+                    discovered.append(link)
+
         # Phase 2: 使用配置的搜索 URL，用毒品关键词搜索（扩大关键词数量）
         search_urls = site.get("search_urls", [])
         if search_urls and len(discovered) < 5:
@@ -451,17 +458,22 @@ class StreamingCrawlCoordinator:
         return discovered[:8]
 
     async def _quick_check(self, site: dict) -> bool:
-        """3 秒超时快速检查站点是否可达，避免长时间等待不可达站点"""
+        """3 秒超时快速检查站点是否可达，失败后 5 秒重试一次"""
         site_url = site.get("url", "").rstrip("/")
-        try:
-            async with httpx.AsyncClient(timeout=5, follow_redirects=True, verify=False) as client:
-                resp = await client.get(site_url, headers={
-                    "User-Agent": get_random_ua(),
-                    "Accept": "text/html",
-                })
-                return 200 <= resp.status_code < 400
-        except Exception:
-            return False
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient(timeout=5, follow_redirects=True, verify=False) as client:
+                    resp = await client.get(site_url, headers={
+                        "User-Agent": get_random_ua(),
+                        "Accept": "text/html",
+                    })
+                    if 200 <= resp.status_code < 400:
+                        return True
+            except Exception:
+                pass
+            if attempt == 0:
+                await asyncio.sleep(5)
+        return False
 
     async def _sample_montsame_ids(self, client: httpx.AsyncClient, base_url: str, drug_keywords: list[str]) -> list[str]:
         """montsame.mn 专用：通过文章 ID 并行采样发现涉毒文章。
@@ -511,6 +523,52 @@ class StreamingCrawlCoordinator:
 
         except Exception as e:
             log.warning("montsame.mn 采样异常: %s", e)
+        return discovered
+
+    async def _sample_see_ids(self, client: httpx.AsyncClient, base_url: str, drug_keywords: list[str]) -> list[str]:
+        """see.mn 专用：通过文章 ID 并行采样。URL 格式 see.mn/{id}.html。
+        从首页获取最新 ID，向后每 30 个 ID 采样，覆盖约 60 天。
+        """
+        discovered = []
+        try:
+            html = await self._http_get(client, base_url)
+            if not html:
+                return discovered
+            ids = re.findall(r'/(\d+)\.html', html)
+            if not ids:
+                return discovered
+            max_id = max(int(i) for i in ids)
+            log.info("see.mn 并行采样: 最新ID=%d, 回溯3000", max_id)
+
+            candidates = []
+            for article_id in range(max_id, max(0, max_id - 3000), -30):
+                candidates.append(f"{base_url}/{article_id}.html")
+
+            async def _check_one(url: str):
+                if self.cancel_event.is_set() or len(discovered) >= 5:
+                    return
+                async with self.semaphore:
+                    html_text = await self._http_get(client, url)
+                if html_text and len(discovered) < 5:
+                    snippet = html_text[:2000]
+                    title_match = re.search(r'<title>(.*?)</title>', snippet, re.DOTALL)
+                    title = title_match.group(1).strip() if title_match else ""
+                    title = re.sub(r'<[^>]+>', '', title)
+                    if any(kw.lower() in title.lower() for kw in drug_keywords):
+                        log.info("see.mn 采样命中: ID=%s — %s", url.rsplit("/", 1)[-1], title[:60])
+                        discovered.append(url)
+
+            batch_size = 15
+            for i in range(0, len(candidates), batch_size):
+                if self.cancel_event.is_set() or len(discovered) >= 5:
+                    break
+                batch = candidates[i:i + batch_size]
+                await asyncio.gather(*[_check_one(u) for u in batch], return_exceptions=True)
+                if i + batch_size < len(candidates):
+                    await asyncio.sleep(0.02)
+
+        except Exception as e:
+            log.warning("see.mn 采样异常: %s", e)
         return discovered
 
     async def _crawl_site(self, site: dict) -> list[dict]:
