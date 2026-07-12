@@ -124,10 +124,30 @@ class CrawlLock:
     def __init__(self):
         self.lock_path = DATA_DIR / ".crawl.lock"
 
+    def _is_process_alive(self, pid: int) -> bool:
+        """检查 PID 是否仍在运行"""
+        try:
+            os.kill(pid, 0)
+            return True
+        except (OSError, ProcessLookupError):
+            return False
+
     def acquire(self) -> bool:
         if self.lock_path.exists():
-            if (time.time() - self.lock_path.stat().st_mtime) / 60 < CRAWL_SETTINGS["lock_timeout_minutes"]:
-                return False
+            try:
+                content = self.lock_path.read_text().strip()
+                if content.isdigit():
+                    pid = int(content)
+                    # 如果是同一个进程，直接返回 True（重入）
+                    if pid == os.getpid():
+                        return True
+                    # 如果进程还活着且在超时内，拒绝
+                    if self._is_process_alive(pid):
+                        if (time.time() - self.lock_path.stat().st_mtime) / 60 < CRAWL_SETTINGS["lock_timeout_minutes"]:
+                            return False
+            except Exception:
+                pass
+            # 进程已死或超时，释放旧锁
             self.release()
         self.lock_path.write_text(str(os.getpid()))
         return True
@@ -135,7 +155,7 @@ class CrawlLock:
     def release(self):
         if self.lock_path.exists():
             try:
-                self.lock_path.unlink()
+                os.unlink(str(self.lock_path))
             except OSError:
                 pass
 
