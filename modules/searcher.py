@@ -330,11 +330,13 @@ class StreamingCrawlCoordinator:
 
     async def _http_get(self, client: httpx.AsyncClient, url: str, max_retries: int = 3) -> Optional[str]:
         """执行 HTTP GET 请求，带指数退避重试"""
-        domain = urlparse(url).netloc
+        parsed = urlparse(url)
+        domain = parsed.netloc
         headers = {
             "User-Agent": get_random_ua(),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "mn-MN,mn;q=0.9,en-US;q=0.8,zh-CN;q=0.6",
+            "Referer": f"{parsed.scheme}://{domain}/",
         }
 
         for attempt in range(max_retries):
@@ -548,6 +550,8 @@ class StreamingCrawlCoordinator:
             await self._progress(json.dumps({"type":"site_discovery","site":site_name,"links":len(all_links)}))
 
             # Phase 2: 访问每个文章详情页
+            rejected_count = {"parse_fail": 0, "filter_fail": 0, "http_fail": 0}
+
             async def fetch_article(article_url: str):
                 if len(articles) >= remaining:
                     return
@@ -575,9 +579,14 @@ class StreamingCrawlCoordinator:
                         self.rate_limiter.increment(site_name)
                         self.checkpoint.mark_crawled(article_url)
                         await self._article_callback(parsed)
+                    elif parsed:
+                        rejected_count["filter_fail"] += 1
+                        self.checkpoint.mark_crawled(article_url)
                     else:
+                        rejected_count["parse_fail"] += 1
                         self.checkpoint.mark_crawled(article_url)
                 else:
+                    rejected_count["http_fail"] += 1
                     self.checkpoint.mark_failed(article_url)
 
             # 并行抓取文章详情
@@ -589,7 +598,7 @@ class StreamingCrawlCoordinator:
                     tasks = [fetch_article(link) for link in to_fetch]
                     await asyncio.gather(*tasks, return_exceptions=True)
 
-        return articles
+        return articles, rejected_count
 
     async def crawl_all_streaming(self) -> dict:
         """并行采集所有 19 个站点，流式输出结果"""
@@ -620,12 +629,27 @@ class StreamingCrawlCoordinator:
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
                 for site, result in zip(batch, results):
-                    result_count = len(result) if isinstance(result, list) else 0
-                    site_results[site["name"]] = result_count
-                    total_articles += result_count
-                    await self._progress(json.dumps({
-                        "type":"site_done","site":site["name"],"articles":result_count
-                    }))
+                    if isinstance(result, tuple) and len(result) == 2:
+                        result_articles, rejected = result
+                        result_count = len(result_articles)
+                        site_results[site["name"]] = result_count
+                        total_articles += result_count
+                        await self._progress(json.dumps({
+                            "type":"site_done","site":site["name"],"articles":result_count,
+                            "rejected": rejected,
+                        }))
+                    elif isinstance(result, list):
+                        result_count = len(result)
+                        site_results[site["name"]] = result_count
+                        total_articles += result_count
+                        await self._progress(json.dumps({
+                            "type":"site_done","site":site["name"],"articles":result_count,
+                        }))
+                    else:
+                        site_results[site["name"]] = 0
+                        await self._progress(json.dumps({
+                            "type":"site_done","site":site["name"],"articles":0,
+                        }))
 
                 await self._progress(json.dumps({
                     "type":"batch_done","batch":batch_num,"total_batches":total_batches,
