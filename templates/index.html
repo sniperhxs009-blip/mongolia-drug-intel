@@ -357,11 +357,14 @@
 
             eventSource.addEventListener('progress', function(e) {
                 try {
-                    const raw = JSON.parse(e.data);
-                    // 检查是否是新的结构化进度消息
-                    if (raw.type) {
+                    let raw = JSON.parse(e.data);
+                    // 兼容旧格式双重包装: {"msg": "{\"type\":...}"}
+                    if (raw.msg && typeof raw.msg === 'string') {
+                        try { raw = JSON.parse(raw.msg); } catch (_) {}
+                    }
+                    if (raw && raw.type) {
                         handleStructuredProgress(raw);
-                    } else if (raw.msg) {
+                    } else if (raw && raw.msg) {
                         progressText.textContent = raw.msg;
                     }
                 } catch (err) {
