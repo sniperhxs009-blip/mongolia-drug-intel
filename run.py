@@ -136,7 +136,7 @@ async def _auth_and_limit(request: Request):
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     stats = get_intel_stats()
-    return templates.TemplateResponse("index.html", {"request": request, "stats": stats})
+    return templates.TemplateResponse("index.html", {"request": request, "stats": stats, "admin_token": ADMIN_TOKEN})
 
 
 # ============================================================

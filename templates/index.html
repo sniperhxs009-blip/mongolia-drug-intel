@@ -152,7 +152,7 @@
         let reconnectAttempt = 0;
         let reconnectTimer = null;
         const MAX_RECONNECT_DELAY = 30000;
-        const ADMIN_TOKEN = '';
+        const ADMIN_TOKEN = '{{ admin_token }}';
         const langLabels = { mn: '蒙语', zh: '中文', en: '英语' };
         // 进度追踪
         let totalSites = 19, completedSites = 0, totalBatches = 2, currentBatch = 0;
@@ -292,9 +292,14 @@
         // ============================================================
 
         function connectSSE() {
+            if (!ADMIN_TOKEN) {
+                progressText.textContent = '未配置 ADMIN_TOKEN，采集功能不可用';
+                finishCrawl();
+                return;
+            }
             // 构建 SSE URL（带 token 鉴权）
             let url = '/api/crawl/stream';
-            if (ADMIN_TOKEN) url += '?token=' + encodeURIComponent(ADMIN_TOKEN);
+            url += '?token=' + encodeURIComponent(ADMIN_TOKEN);
 
             eventSource = new EventSource(url);
 
@@ -394,6 +399,11 @@
 
             eventSource.onerror = function(e) {
                 if (!isLiveCrawl) return;
+                if (reconnectAttempt >= 5) {
+                    progressText.textContent = '无法连接采集服务，请检查网络或 ADMIN_TOKEN';
+                    finishCrawl();
+                    return;
+                }
                 // 指数退避重连
                 const delay = Math.min(1000 * Math.pow(2, reconnectAttempt), MAX_RECONNECT_DELAY);
                 reconnectAttempt++;
