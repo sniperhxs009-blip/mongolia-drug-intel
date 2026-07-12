@@ -369,17 +369,35 @@ class StreamingCrawlCoordinator:
     async def _discover_articles(self, client: httpx.AsyncClient, site: dict, keywords: list[str]) -> list[str]:
         """
         Phase 1: 从站点页面发现文章链接。
-        策略：站内搜索（关键词）→ 首页+列表页 → RSS。
-        用多个关键词逐个尝试搜索 URL，直到找到足够链接。
+        策略：RSS（标题关键词预筛）→ 站内搜索 → 首页+列表页。
+        RSS 优先，因为标题预筛能最快定位涉毒文章。
         """
         site_url = site.get("url", "").rstrip("/")
         domain = urlparse(site_url).netloc
         discovered = []
+        from modules.filter_module import STRONG_DRUG_WORDS
 
-        # Phase 1: 使用配置的搜索 URL，用毒品关键词真正搜索
+        # Phase 1: RSS 优先（标题关键词预筛，最快定位涉毒文章）
+        for rss_path in RSS_PATHS:
+            if self.cancel_event.is_set():
+                break
+            rss_url = site_url + rss_path
+            async with self.semaphore:
+                await asyncio.sleep(get_delay())
+                html = await self._http_get(client, rss_url)
+            if html and ("<rss" in html.lower() or "<feed" in html.lower() or "<item>" in html or "<entry>" in html):
+                # 用毒品关键词预筛 RSS 标题，只取相关链接
+                links = _extract_rss_links_with_filter(html, site_url, STRONG_DRUG_WORDS)
+                for link in links:
+                    if link not in discovered:
+                        discovered.append(link)
+                if len(discovered) >= 5:
+                    break
+
+        # Phase 2: 使用配置的搜索 URL，用毒品关键词搜索
         search_urls = site.get("search_urls", [])
-        if search_urls:
-            for kw in (keywords[:3] if keywords else [""]):
+        if search_urls and len(discovered) < 5:
+            for kw in (keywords[:2] if keywords else [""]):
                 if not kw or self.cancel_event.is_set():
                     break
                 for search_url in search_urls[:2]:
@@ -402,33 +420,32 @@ class StreamingCrawlCoordinator:
                 if len(discovered) >= 5:
                     break
 
-        # Phase 2: 补充首页和新闻列表页
-        pages_to_try = [site_url]
-        for suffix in ["/news", "/mn", "/en", "/articles", "/archive",
-                       "/news/all", "/category/news", "/mn/news", "/mn/read",
-                       "/news/latest", "/latest", "/all-news"]:
-            pages_to_try.append(site_url + suffix)
-
-        homepage_links = await self._discover_from_pages(client, site, pages_to_try[:3])
-        for link in homepage_links:
-            if link not in discovered:
-                discovered.append(link)
-
-        # Phase 3: RSS 回退
-        if len(discovered) < 2:
-            for rss_path in RSS_PATHS[:2]:
-                rss_url = site_url + rss_path
-                async with self.semaphore:
-                    await asyncio.sleep(get_delay())
-                    html = await self._http_get(client, rss_url)
-                if html and ("<rss" in html.lower() or "<feed" in html.lower() or "<item>" in html or "<entry>" in html):
-                    links = _extract_rss_links(html, site_url)
-                    for link in links:
-                        if link not in discovered:
-                            discovered.append(link)
-                    break
+        # Phase 3: 补充首页和新闻列表页
+        if len(discovered) < 5:
+            pages_to_try = [site_url]
+            for suffix in ["/news", "/mn", "/en", "/articles",
+                           "/news/all", "/mn/news", "/mn/read",
+                           "/news/latest", "/latest"]:
+                pages_to_try.append(site_url + suffix)
+            homepage_links = await self._discover_from_pages(client, site, pages_to_try[:3])
+            for link in homepage_links:
+                if link not in discovered:
+                    discovered.append(link)
 
         return discovered[:8]
+
+    async def _quick_check(self, site: dict) -> bool:
+        """3 秒超时快速检查站点是否可达，避免长时间等待不可达站点"""
+        site_url = site.get("url", "").rstrip("/")
+        try:
+            async with httpx.AsyncClient(timeout=3, follow_redirects=True, verify=False) as client:
+                resp = await client.get(site_url, headers={
+                    "User-Agent": get_random_ua(),
+                    "Accept": "text/html",
+                })
+                return resp.status_code == 200
+        except Exception:
+            return False
 
     async def _crawl_site(self, site: dict) -> list[dict]:
         """
@@ -438,6 +455,12 @@ class StreamingCrawlCoordinator:
         site_name = site["name"]
         if not self.rate_limiter.can_fetch(site_name):
             await self._progress(json.dumps({"type":"site_skip","site":site_name,"reason":"日上限"}))
+            return []
+
+        # 快速可达性检查，跳过不可达站点
+        reachable = await self._quick_check(site)
+        if not reachable:
+            await self._progress(json.dumps({"type":"site_skip","site":site_name,"reason":"不可达"}))
             return []
 
         keywords = get_keywords_for_site(site)
@@ -579,6 +602,66 @@ def _extract_rss_links(xml_text: str, base_url: str) -> list[str]:
         links = re.findall(r'https?://[^\s<>"]+', xml_text)
         links = [l for l in links if urlparse(base_url).netloc in l]
     return list(dict.fromkeys(links))[:15]
+
+
+def _extract_rss_links_with_filter(xml_text: str, base_url: str, drug_keywords: list[str]) -> list[str]:
+    """从 RSS XML 中提取文章链接，只保留标题含毒品关键词的条目。
+    同时返回其他条目（不限标题），但毒品相关条目优先排在前面。
+    """
+    drug_links = []
+    other_links = []
+
+    # 解析每个 <item> 条目
+    items = re.findall(r'<item>(.*?)</item>', xml_text, re.DOTALL)
+    if not items:
+        items = re.findall(r'<entry>(.*?)</entry>', xml_text, re.DOTALL)
+
+    for item in items:
+        # 提取标题
+        title_match = re.search(r'<title>(.*?)</title>', item, re.DOTALL)
+        title = title_match.group(1).strip() if title_match else ""
+        # 清理 CDATA 和 HTML
+        title = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', title)
+        title = re.sub(r'<[^>]+>', '', title)
+
+        # 提取链接
+        link = ""
+        link_match = re.search(r'<link>\s*(https?://[^<\s]+)\s*</link>', item)
+        if link_match:
+            link = link_match.group(1)
+        else:
+            # 尝试 ikon.mn 风格短链接: <link>https://ikon.mn/n/xxxx</link>
+            # 或相对链接
+            link_match = re.search(r'<link>(?!\s*https?://)([^<\s]+)</link>', item)
+            if link_match:
+                link = urljoin(base_url, link_match.group(1))
+
+        if not link:
+            # Atom: <link href="url"/>
+            link_match = re.search(r'<link[^>]*href="(https?://[^"]+)"', item)
+            if link_match:
+                link = link_match.group(1)
+
+        if not link:
+            # GUID fallback
+            guid_match = re.search(r'<guid[^>]*>(https?://[^<\s]+)</guid>', item)
+            if guid_match:
+                link = guid_match.group(1)
+
+        if not link:
+            continue
+
+        # 标题关键词检查
+        title_lower = title.lower()
+        is_drug = any(kw.lower() in title_lower for kw in drug_keywords)
+        if is_drug:
+            drug_links.append(link)
+        else:
+            other_links.append(link)
+
+    # 毒品相关优先，其他兜底
+    result = drug_links + other_links
+    return list(dict.fromkeys(result))[:15]
 
 
 # ============================================================
