@@ -12,7 +12,10 @@ from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
 LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+_ON_VERCEL = os.environ.get("VERCEL") == "1"
+
+if not _ON_VERCEL:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 _loggers: dict[str, logging.Logger] = {}
 _initialized = False
@@ -37,27 +40,28 @@ def init_logging(level: str = "INFO"):
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # 控制台输出
-    console = logging.StreamHandler(sys.stdout)
-    console.setLevel(log_level)
-    console.setFormatter(fmt)
-
-    # 文件输出（按天分割，保留 30 天）
-    file_handler = TimedRotatingFileHandler(
-        filename=LOG_DIR / "app.log",
-        when="midnight",
-        interval=1,
-        backupCount=30,
-        encoding="utf-8",
-    )
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(fmt)
-
     root = logging.getLogger()
     root.setLevel(logging.DEBUG)
     root.handlers.clear()
+
+    # 控制台输出（Vercel 会自动捕获 stdout）
+    console = logging.StreamHandler(sys.stdout)
+    console.setLevel(log_level)
+    console.setFormatter(fmt)
     root.addHandler(console)
-    root.addHandler(file_handler)
+
+    # 文件输出仅在非 Vercel 环境启用
+    if not _ON_VERCEL:
+        file_handler = TimedRotatingFileHandler(
+            filename=LOG_DIR / "app.log",
+            when="midnight",
+            interval=1,
+            backupCount=30,
+            encoding="utf-8",
+        )
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(fmt)
+        root.addHandler(file_handler)
 
     _initialized = True
 
