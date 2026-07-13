@@ -210,12 +210,14 @@ async def search_all_articles(progress_callback=None) -> list[dict]:
     all_articles = []
     seen_urls = set()
     lock = asyncio.Lock()
+    sem = asyncio.Semaphore(3)  # 限制并发，防止 API 限流
     completed = 0
     total = len(SEARCH_QUERIES)
 
     async def _run_one(i: int, query: str):
         nonlocal completed
-        raw = await _call_deepseek(query)
+        async with sem:
+            raw = await _call_deepseek(query)
         if raw:
             articles = _parse_json_response(raw)
             async with lock:
