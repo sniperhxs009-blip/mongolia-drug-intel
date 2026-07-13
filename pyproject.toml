@@ -1,2 +1,7 @@
+[project]
+name = "mongolia-drug-intel"
+version = "6.0.0"
+requires-python = ">=3.9"
+
 [tool.vercel]
 entrypoint = "run:app"
