@@ -726,9 +726,9 @@ class StreamingCrawlCoordinator:
 
         try:
             # ============================================================
-            # Phase 0: DeepSeek 联网搜索（直接返回完整文章）
+            # Phase 0: AI 联网搜索（直接返回完整文章）
             # ============================================================
-            await self._progress(json.dumps({"type":"phase","phase":"search_engine","msg":"DeepSeek 联网搜索中..."}))
+            await self._progress(json.dumps({"type":"phase","phase":"search_engine","msg":"AI 联网搜索中..."}))
             try:
                 from modules.search_engines import search_all_articles
 
@@ -743,12 +743,12 @@ class StreamingCrawlCoordinator:
                     }))
 
                 search_articles = await search_all_articles(progress_callback=search_progress)
-                log.info("DeepSeek 搜索: %d 篇完整文章", len(search_articles))
+                log.info("AI 搜索: %d 篇完整文章", len(search_articles))
                 await self._progress(json.dumps({
                     "type":"search_done","total_urls":len(search_articles)
                 }))
 
-                # 直接推送文章（DeepSeek 已在 search_engines.py 通过三重过滤：可信域名+毒品相关+蒙古相关）
+                # 直接推送文章（已在 search_engines.py 通过三重过滤：可信域名+毒品相关+蒙古相关）
                 from modules.filter_module import ai_classify
                 for article in search_articles:
                     if self.cancel_event.is_set():
@@ -767,7 +767,7 @@ class StreamingCrawlCoordinator:
                     "type":"search_articles","count":total_articles
                 }))
             except Exception as e:
-                log.warning("DeepSeek 搜索异常: %s", e)
+                log.warning("AI 搜索异常: %s", e)
 
             # ============================================================
             # Phase 1-2: 常规批量站点采集

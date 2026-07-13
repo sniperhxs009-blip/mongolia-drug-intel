@@ -204,7 +204,7 @@ async def search_all_articles(progress_callback=None) -> list[dict]:
     if not DEEPSEEK_SEARCH_AVAILABLE:
         log.warning("DEEPSEEK_API_KEY not set")
         if progress_callback:
-            await progress_callback("search_engine", 0, len(SEARCH_QUERIES), 0, "DeepSeek API Key 未设置")
+            await progress_callback("search_engine", 0, len(SEARCH_QUERIES), 0, "API Key 未设置")
         return []
 
     all_articles = []
@@ -232,7 +232,7 @@ async def search_all_articles(progress_callback=None) -> list[dict]:
             if progress_callback:
                 await progress_callback(
                     "search_engine", completed, total, current_count,
-                    f"DeepSeek 搜索 {completed}/{total}：+{added} 篇，累计 {current_count} 篇"
+                    f"AI 搜索 {completed}/{total}：+{added} 篇，累计 {current_count} 篇"
                 )
         else:
             async with lock:
@@ -242,7 +242,7 @@ async def search_all_articles(progress_callback=None) -> list[dict]:
             if progress_callback:
                 await progress_callback(
                     "search_engine", completed, total, current_count,
-                    f"DeepSeek 搜索 {completed}/{total}：无结果"
+                    f"AI 搜索 {completed}/{total}：无结果"
                 )
 
     await asyncio.gather(*[_run_one(i, q) for i, q in enumerate(SEARCH_QUERIES)])

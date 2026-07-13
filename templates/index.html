@@ -88,25 +88,7 @@
     <div class="header">
         <div>
             <h1>蒙古国涉毒新闻情报系统 v5.1</h1>
-            <div class="subtitle">Mongolia Drug Intelligence — 19 站点 · DeepSeek AI 识别 · 30日时效 · 双语显示</div>
-        </div>
-        <div class="stats-bar">
-            <div class="stat-item">
-                <div class="stat-value" id="stat-total">0</div>
-                <div class="stat-label">情报总数</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-value" id="stat-mn">0</div>
-                <div class="stat-label">蒙语</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-value" id="stat-zh">0</div>
-                <div class="stat-label">中文</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-value" id="stat-en">0</div>
-                <div class="stat-label">英语</div>
-            </div>
+            <div class="subtitle">Mongolia Drug Intelligence — 19 站点 · AI 识别 · 30日时效 · 双语显示</div>
         </div>
     </div>
 
@@ -165,15 +147,7 @@
         });
 
         async function loadStats() {
-            try {
-                const resp = await fetch('/api/stats');
-                const stats = await resp.json();
-                document.getElementById('stat-total').textContent = stats.total || 0;
-                const byLang = stats.by_language || {};
-                document.getElementById('stat-mn').textContent = byLang.mn || 0;
-                document.getElementById('stat-zh').textContent = byLang.zh || 0;
-                document.getElementById('stat-en').textContent = byLang.en || 0;
-            } catch (e) {}
+            // stats bar removed, keep function stub for compatibility
         }
 
         async function searchIntel(page = 1) {
@@ -253,12 +227,6 @@
                 container.removeChild(container.lastChild);
             }
             liveCount++;
-            document.getElementById('stat-total').textContent = parseInt(document.getElementById('stat-total').textContent || 0) + 1;
-            const langMap = { mn: 'stat-mn', zh: 'stat-zh', en: 'stat-en' };
-            if (langMap[item.language]) {
-                const el = document.getElementById(langMap[item.language]);
-                el.textContent = parseInt(el.textContent || 0) + 1;
-            }
         }
 
         function renderPagination(total, page) {
@@ -472,18 +440,18 @@
                     break;
 
                 case 'search_progress':
-                    // DeepSeek 搜索进度: current/total, article_count 累计
+                    // AI 搜索进度: current/total, article_count 累计
                     const spct = Math.round((data.current || 0) / (data.total || 12) * 100);
                     percentEl.textContent = Math.min(spct, 50) + '%';
                     fillEl.style.width = Math.min(spct, 50) + '%';
-                    progressText.textContent = data.msg || `DeepSeek 搜索 ${data.current}/${data.total}`;
+                    progressText.textContent = data.msg || `AI 搜索 ${data.current}/${data.total}`;
                     if (data.article_count > 0) {
-                        liveCountEl.innerHTML = `DeepSeek 已发现 <strong>${data.article_count}</strong> 篇文章`;
+                        liveCountEl.innerHTML = `AI 已发现 <strong>${data.article_count}</strong> 篇文章`;
                     }
                     break;
 
                 case 'search_done':
-                    liveCountEl.innerHTML = `DeepSeek 搜索完成：<strong>${data.total_urls || 0}</strong> 篇`;
+                    liveCountEl.innerHTML = `AI 搜索完成：<strong>${data.total_urls || 0}</strong> 篇`;
                     break;
 
                 case 'batch_start':
