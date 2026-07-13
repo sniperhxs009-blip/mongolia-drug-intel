@@ -84,7 +84,7 @@ def _search_ddg(query: str, max_results: int = 25) -> list[dict]:
                 url = r.get("href", "")
                 title = r.get("title", "")
                 body = r.get("body", "")
-                if url:
+                if url and url not in [x["url"] for x in results]:
                     results.append({"url": url, "title": title, "body": body})
     except Exception as e:
         log.warning("ddgs 搜索异常: %s", e)
