@@ -390,7 +390,30 @@ class StreamingCrawlCoordinator:
         discovered = []
         drug_kw = _get_drug_keywords()
 
-        # Phase 1: RSS 优先（标题关键词预筛，最快定位涉毒文章）
+        # Phase 0: 搜索引擎发现（用 Bing 索引直接搜 site:域名 + 毒品关键词）
+        if len(discovered) < 5:
+            try:
+                from modules.search_engines import _search_ddg
+                site_domain_clean = domain.replace("www.", "")
+                for kw in drug_kw[:4]:  # 用前4个关键词
+                    if self.cancel_event.is_set() or len(discovered) >= 10:
+                        break
+                    query = f"site:{site_domain_clean} {kw}"
+                    results = _search_ddg(query, max_results=8)
+                    for r in results:
+                        url = r.get("url", "")
+                        if url and url not in discovered:
+                            discovered.append(url)
+                    await asyncio.sleep(0.1)
+                if discovered:
+                    await self._progress(json.dumps({
+                        "type":"search_hit","site":site.get("name",""),
+                        "links":len(discovered)
+                    }))
+            except Exception as e:
+                log.debug("搜索引擎发现失败 [%s]: %s", site.get("name"), e)
+
+        # Phase 1: RSS（标题关键词预筛，最快定位涉毒文章）
         for rss_path in RSS_PATHS:
             if self.cancel_event.is_set():
                 break
@@ -668,7 +691,7 @@ class StreamingCrawlCoordinator:
         return articles, rejected_count
 
     async def crawl_all_streaming(self) -> dict:
-        """并行采集所有 19 个站点，流式输出结果"""
+        """并行采集所有站点，含搜索引擎预发现 + 流式输出结果"""
         if not self.lock.acquire():
             return {"error": "采集锁被占用"}
 
@@ -679,7 +702,63 @@ class StreamingCrawlCoordinator:
 
         await self._progress(json.dumps({"type":"crawl_start","total_sites":total_sites}))
 
+        from modules.parser import parse_article_html
+        from modules.filter_module import strict_filter
+
         try:
+            # ============================================================
+            # Phase 0: 搜索引擎预发现（用 Bing 索引覆盖所有站点，包括不可达的）
+            # ============================================================
+            await self._progress(json.dumps({"type":"phase","phase":"search_engine","msg":"搜索引擎预发现..."}))
+            search_urls = []
+            try:
+                from modules.search_engines import get_search_discovery_urls
+                search_urls = get_search_discovery_urls()
+                log.info("搜索引擎预发现: %d 个URL", len(search_urls))
+                await self._progress(json.dumps({
+                    "type":"search_done","total_urls":len(search_urls)
+                }))
+            except Exception as e:
+                log.warning("搜索引擎预发现异常: %s", e)
+
+            if search_urls:
+                async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True, verify=False) as client:
+                    async def fetch_search_article(article_url: str):
+                        if self.cancel_event.is_set():
+                            return
+                        if self.checkpoint.is_crawled(article_url):
+                            return
+                        if not self.checkpoint.can_retry(article_url, max_retries=3):
+                            return
+                        domain = urlparse(article_url).netloc
+                        async with self.semaphore:
+                            await asyncio.sleep(self._get_backoff_delay(domain))
+                            html = await self._http_get(client, article_url)
+                        if html:
+                            parsed = parse_article_html(html, article_url, {"name":"搜索引擎","language":"auto","category_name":"search"})
+                            if parsed and strict_filter(parsed):
+                                self.checkpoint.mark_crawled(article_url)
+                                await self._article_callback(parsed)
+                                return parsed
+                            elif parsed:
+                                self.checkpoint.mark_crawled(article_url)
+                        else:
+                            self.checkpoint.mark_failed(article_url)
+                        return None
+
+                    # 并行处理搜索引擎发现的 URL（最多 50 个）
+                    to_fetch = search_urls[:50]
+                    tasks = [fetch_search_article(u) for u in to_fetch]
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    search_articles = [r for r in results if r is not None and not isinstance(r, Exception)]
+                    total_articles += len(search_articles)
+                    await self._progress(json.dumps({
+                        "type":"search_articles","count":len(search_articles)
+                    }))
+
+            # ============================================================
+            # Phase 1-2: 常规批量站点采集
+            # ============================================================
             batch_size = 10
             for i in range(0, total_sites, batch_size):
                 if self.cancel_event.is_set():
