@@ -476,9 +476,9 @@ class StreamingCrawlCoordinator:
         return False
 
     async def _sample_montsame_ids(self, client: httpx.AsyncClient, base_url: str, drug_keywords: list[str]) -> list[str]:
-        """montsame.mn 专用：通过文章 ID 并行采样发现涉毒文章。
-        从首页获取最新 ID，向后每 5 个 ID 采样，覆盖约 90 天（6000 个 ID）。
-        并行批量请求（受 semaphore 控制），发现 8 篇即停止。
+        """montsame.mn 专用：随机采样文章 ID 发现涉毒文章。
+        从首页获取最新 ID，在 6000 个 ID 范围内随机选 600 个，覆盖约 90 天。
+        并行批量请求，发现 8 篇即停止。
         """
         discovered = []
         try:
@@ -489,11 +489,13 @@ class StreamingCrawlCoordinator:
             if not ids:
                 return discovered
             max_id = max(int(i) for i in ids)
-            log.info("montsame.mn 并行采样: 最新ID=%d, 回溯6000", max_id)
+            min_id = max(0, max_id - 6000)
+            log.info("montsame.mn 随机采样: 最新ID=%d, 范围 %d-%d, 采样600", max_id, min_id, max_id)
 
-            # 生成候选 URL 列表（每 5 个 ID，MN + EN 两个语言版本）
+            # 随机采样 600 个 ID（比固定步长覆盖更均匀）
+            sample_ids = random.sample(range(min_id, max_id + 1), min(600, max_id - min_id + 1))
             candidates = []
-            for article_id in range(max_id, max(0, max_id - 6000), -5):
+            for article_id in sample_ids:
                 for lang_path in ["/mn/read/", "/en/read/"]:
                     candidates.append(f"{base_url}{lang_path}{article_id}")
 
@@ -511,7 +513,6 @@ class StreamingCrawlCoordinator:
                         log.info("montsame.mn 采样命中: %s — %s", url.rsplit("/", 1)[-1], title[:60])
                         discovered.append(url)
 
-            # 分批并行执行，每批 15 个并发
             batch_size = 15
             for i in range(0, len(candidates), batch_size):
                 if self.cancel_event.is_set() or len(discovered) >= 8:
@@ -526,8 +527,8 @@ class StreamingCrawlCoordinator:
         return discovered
 
     async def _sample_see_ids(self, client: httpx.AsyncClient, base_url: str, drug_keywords: list[str]) -> list[str]:
-        """see.mn 专用：通过文章 ID 并行采样。URL 格式 see.mn/{id}.html。
-        从首页获取最新 ID，向后每 5 个 ID 采样，覆盖约 90 天（6000 个 ID）。
+        """see.mn 专用：随机采样文章 ID。URL 格式 see.mn/{id}.html。
+        从首页获取最新 ID，在 6000 个 ID 范围内随机选 600 个，覆盖约 90 天。
         """
         discovered = []
         try:
@@ -538,11 +539,11 @@ class StreamingCrawlCoordinator:
             if not ids:
                 return discovered
             max_id = max(int(i) for i in ids)
-            log.info("see.mn 并行采样: 最新ID=%d, 回溯6000", max_id)
+            min_id = max(0, max_id - 6000)
+            log.info("see.mn 随机采样: 最新ID=%d, 范围 %d-%d, 采样600", max_id, min_id, max_id)
 
-            candidates = []
-            for article_id in range(max_id, max(0, max_id - 6000), -5):
-                candidates.append(f"{base_url}/{article_id}.html")
+            sample_ids = random.sample(range(min_id, max_id + 1), min(600, max_id - min_id + 1))
+            candidates = [f"{base_url}/{aid}.html" for aid in sample_ids]
 
             async def _check_one(url: str):
                 if self.cancel_event.is_set() or len(discovered) >= 8:
