@@ -5,10 +5,10 @@
 单次查询返回 JSON 格式的标题+URL+中文摘要。
 只信任国际新闻源（Reuters, BBC, AP, Al Jazeera, UNODC, INTERPOL 等）。
 """
+import asyncio
 import json
 import os
 import re
-import time
 
 import httpx
 
@@ -196,8 +196,8 @@ def extract_source_name(url: str) -> str:
 
 async def search_all_articles(progress_callback=None) -> list[dict]:
     """
-    主入口：串行执行 12 个查询，每完成一个就调用 progress_callback 推送进度。
-    progress_callback(phase, current, total, article_count)
+    主入口：并行执行 12 个查询，每完成一个就调用 progress_callback 推送进度。
+    progress_callback(phase, current, total, article_count, msg)
     """
     if not DEEPSEEK_SEARCH_AVAILABLE:
         log.warning("DEEPSEEK_API_KEY not set")
@@ -207,41 +207,43 @@ async def search_all_articles(progress_callback=None) -> list[dict]:
 
     all_articles = []
     seen_urls = set()
+    lock = asyncio.Lock()
+    completed = 0
+    total = len(SEARCH_QUERIES)
 
-    for i, query in enumerate(SEARCH_QUERIES):
+    async def _run_one(i: int, query: str):
+        nonlocal completed
         raw = await _call_deepseek(query)
-        count_before = len(all_articles)
-
         if raw:
             articles = _parse_json_response(raw)
-            for a in articles:
-                url = a.get("source_url", "")
-                if url and url not in seen_urls:
-                    seen_urls.add(url)
-                    all_articles.append(a)
-            added = len(all_articles) - count_before
-            log.info("查询 %d/%d: +%d 篇 (累计 %d)", i + 1, len(SEARCH_QUERIES), added, len(all_articles))
-
+            async with lock:
+                count_before = len(all_articles)
+                for a in articles:
+                    url = a.get("source_url", "")
+                    if url and url not in seen_urls:
+                        seen_urls.add(url)
+                        all_articles.append(a)
+                added = len(all_articles) - count_before
+                completed += 1
+                current_count = len(all_articles)
+            log.info("查询 %d/%d: +%d 篇 (累计 %d)", i + 1, total, added, current_count)
             if progress_callback:
                 await progress_callback(
-                    "search_engine",
-                    i + 1,
-                    len(SEARCH_QUERIES),
-                    len(all_articles),
-                    f"DeepSeek 搜索 {i+1}/{len(SEARCH_QUERIES)}：+{added} 篇，累计 {len(all_articles)} 篇"
+                    "search_engine", completed, total, current_count,
+                    f"DeepSeek 搜索 {completed}/{total}：+{added} 篇，累计 {current_count} 篇"
                 )
         else:
-            log.info("查询 %d/%d: 失败", i + 1, len(SEARCH_QUERIES))
+            async with lock:
+                completed += 1
+                current_count = len(all_articles)
+            log.info("查询 %d/%d: 失败", i + 1, total)
             if progress_callback:
                 await progress_callback(
-                    "search_engine",
-                    i + 1,
-                    len(SEARCH_QUERIES),
-                    len(all_articles),
-                    f"DeepSeek 搜索 {i+1}/{len(SEARCH_QUERIES)}：无结果"
+                    "search_engine", completed, total, current_count,
+                    f"DeepSeek 搜索 {completed}/{total}：无结果"
                 )
 
-        time.sleep(0.3)
+    await asyncio.gather(*[_run_one(i, q) for i, q in enumerate(SEARCH_QUERIES)])
 
     log.info("总计: %d 篇毒品相关文章", len(all_articles))
     return all_articles
