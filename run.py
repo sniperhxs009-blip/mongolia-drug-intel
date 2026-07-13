@@ -308,6 +308,26 @@ async def api_crawl_stop(request: Request):
     return {"status": "ok", "message": "采集已停止"}
 
 
+@app.post("/api/deepseek/search")
+async def api_deepseek_search(request: Request):
+    """
+    DeepSeek 联网检索：执行月度全量涉毒情报检索。
+    需要 token 鉴权。返回 JSON 结果。
+    """
+    _verify_token(request)
+    from deepseek_search import SEARCH_PROMPT, call_deepseek_search, extract_json_from_response
+    from datetime import datetime
+
+    raw = call_deepseek_search(SEARCH_PROMPT)
+    results = extract_json_from_response(raw) if raw else []
+
+    return {
+        "total": len(results),
+        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "results": results,
+    }
+
+
 # ============================================================
 # 启动入口
 # ============================================================
