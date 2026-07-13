@@ -157,10 +157,12 @@ async def api_get_intel(
     offset: int = Query(default=0, ge=0),
 ):
     data = load_existing_intel()
-    results = search(data, keyword=keyword, source=source, language=language,
-                     start_date=start_date, end_date=end_date, limit=limit + offset)
-    total = len(results)
-    results = results[offset:offset + limit]
+    # 先不限量获取全部匹配结果，用于计算真实 total
+    all_results = search(data, keyword=keyword, source=source, language=language,
+                         start_date=start_date, end_date=end_date, limit=9999)
+    total = len(all_results)
+    # 再分页截取
+    results = all_results[offset:offset + limit]
     return {"total": total, "limit": limit, "offset": offset, "results": results}
 
 
