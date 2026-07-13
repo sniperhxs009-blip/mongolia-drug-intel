@@ -334,7 +334,7 @@ class StreamingCrawlCoordinator:
         domain = parsed.netloc
         headers = {
             "User-Agent": get_random_ua(),
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
             "Accept-Language": "mn-MN,mn;q=0.9,en-US;q=0.8,zh-CN;q=0.6",
             "Referer": f"{parsed.scheme}://{domain}/",
         }
