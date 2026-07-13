@@ -99,6 +99,17 @@ def _is_trusted_url(url: str) -> bool:
     return any(d in url_lower for d in TRUSTED_DOMAINS)
 
 
+def _is_mongolia_related(title: str, summary: str) -> bool:
+    """检查文章是否与蒙古国相关"""
+    text = (title + " " + summary).lower()
+    mongolia_signals = [
+        "mongolia", "mongolian", "ulaanbaatar", "乌兰巴托",
+        "蒙古", "蒙通社", "montsame",
+        "中蒙", "蒙俄", "中俄蒙",
+    ]
+    return any(sig in text for sig in mongolia_signals)
+
+
 def _is_drug_related(title: str, summary: str) -> bool:
     text = (title + " " + summary).lower()
     drug_signals = [
@@ -163,6 +174,9 @@ def _parse_json_response(text: str) -> list[dict]:
             continue
         # 必须与毒品相关
         if not _is_drug_related(title, summary):
+            continue
+        # 必须与蒙古国相关（至少提及蒙古）
+        if not _is_mongolia_related(title, summary):
             continue
 
         articles.append({
