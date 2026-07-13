@@ -71,6 +71,23 @@ def get_delay() -> float:
     return 0.01 + random.uniform(0, 0.03)
 
 
+def _quick_keyword_check(title: str) -> bool:
+    """快速标题关键词预筛，过滤明显无关的结果"""
+    drug_signals = [
+        "drug", "narcotic", "trafficking", "seizure", "bust", "smuggling",
+        "opioid", "fentanyl", "meth", "cocaine", "heroin", "cannabis",
+        "cartel", "arrest", "raid", "anti-drug", "organized crime", "illicit",
+        "UNODC", "interpol", "methamphetamine", "ecstasy", "amphetamine",
+        "drug lord", "drug dealer", "drug ring", "drug network",
+        "хар тамхи", "мансууруулах", "наркотик", "фентанил",
+        "психотроп", "каннабис", "марихуан", "кокаин", "гаалийн",
+        "毒品", "贩毒", "缉毒", "禁毒", "走私毒品", "跨境贩毒",
+        "吸毒", "海洛因", "冰毒", "吗啡", "摇头丸", "查获", "缴获", "抓捕", "捣毁",
+    ]
+    title_lower = title.lower()
+    return any(sig in title_lower for sig in drug_signals)
+
+
 def get_all_sites() -> list[dict]:
     all_sites = []
     for cat_key, category in SITES_CONFIG["categories"].items():
@@ -319,6 +336,8 @@ class StreamingCrawlCoordinator:
         self.cancel_event = asyncio.Event()
         # 阶梯反爬：记录每个域名的连续失败次数，用于增加延迟
         self._domain_fail_count: dict[str, int] = {}
+        self._domain_reachable: dict[str, bool] = {}  # 缓存可达性
+        self._sampled_domains: set = set()  # 已完成ID采样的域名
 
     async def _progress(self, msg: str):
         if self.on_progress:
@@ -707,54 +726,40 @@ class StreamingCrawlCoordinator:
 
         try:
             # ============================================================
-            # Phase 0: 搜索引擎预发现（用 Bing 索引覆盖所有站点，包括不可达的）
+            # Phase 0: DeepSeek 联网搜索（国内IP，直接返回完整文章）
             # ============================================================
-            await self._progress(json.dumps({"type":"phase","phase":"search_engine","msg":"搜索引擎预发现..."}))
-            search_urls = []
+            await self._progress(json.dumps({"type":"phase","phase":"search_engine","msg":"DeepSeek 联网搜索中..."}))
             try:
-                from modules.search_engines import get_search_discovery_urls
-                search_urls = get_search_discovery_urls()
-                log.info("搜索引擎预发现: %d 个URL", len(search_urls))
+                from modules.search_engines import search_all_articles
+                search_articles = search_all_articles()
+                log.info("DeepSeek 搜索: %d 篇完整文章", len(search_articles))
                 await self._progress(json.dumps({
-                    "type":"search_done","total_urls":len(search_urls)
+                    "type":"search_done","total_urls":len(search_articles)
+                }))
+
+                # 直接推送文章，不再爬取（DeepSeek已返回完整内容）
+                from modules.filter_module import ai_classify
+                for article in search_articles:
+                    if self.cancel_event.is_set():
+                        break
+                    url = article.get("source_url", "")
+                    title = article.get("news_title", "")
+                    if not title or len(title) < 5:
+                        continue
+                    # 快速关键词过滤
+                    if not _quick_keyword_check(title):
+                        continue
+                    # 标记已处理
+                    if url:
+                        self.checkpoint.mark_crawled(url)
+                    total_articles += 1
+                    await self._article_callback(article)
+
+                await self._progress(json.dumps({
+                    "type":"search_articles","count":total_articles
                 }))
             except Exception as e:
-                log.warning("搜索引擎预发现异常: %s", e)
-
-            if search_urls:
-                async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True, verify=False) as client:
-                    async def fetch_search_article(article_url: str):
-                        if self.cancel_event.is_set():
-                            return
-                        if self.checkpoint.is_crawled(article_url):
-                            return
-                        if not self.checkpoint.can_retry(article_url, max_retries=3):
-                            return
-                        domain = urlparse(article_url).netloc
-                        async with self.semaphore:
-                            await asyncio.sleep(self._get_backoff_delay(domain))
-                            html = await self._http_get(client, article_url)
-                        if html:
-                            parsed = parse_article_html(html, article_url, {"name":"搜索引擎","language":"auto","category_name":"search"})
-                            if parsed and strict_filter(parsed):
-                                self.checkpoint.mark_crawled(article_url)
-                                await self._article_callback(parsed)
-                                return parsed
-                            elif parsed:
-                                self.checkpoint.mark_crawled(article_url)
-                        else:
-                            self.checkpoint.mark_failed(article_url)
-                        return None
-
-                    # 并行处理搜索引擎发现的 URL（最多 50 个）
-                    to_fetch = search_urls[:50]
-                    tasks = [fetch_search_article(u) for u in to_fetch]
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
-                    search_articles = [r for r in results if r is not None and not isinstance(r, Exception)]
-                    total_articles += len(search_articles)
-                    await self._progress(json.dumps({
-                        "type":"search_articles","count":len(search_articles)
-                    }))
+                log.warning("DeepSeek 搜索异常: %s", e)
 
             # ============================================================
             # Phase 1-2: 常规批量站点采集
