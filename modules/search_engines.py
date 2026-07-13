@@ -58,7 +58,7 @@ REFUSE_SIGNALS = [
 ]
 
 
-def _call_deepseek(query: str, max_tokens: int = 3500) -> str:
+async def _call_deepseek(query: str, max_tokens: int = 3500) -> str:
     if not DEEPSEEK_SEARCH_AVAILABLE:
         return ""
 
@@ -76,8 +76,8 @@ def _call_deepseek(query: str, max_tokens: int = 3500) -> str:
     }
 
     try:
-        with httpx.Client(timeout=120) as client:
-            resp = client.post(
+        async with httpx.AsyncClient(timeout=120) as client:
+            resp = await client.post(
                 "https://api.deepseek.com/v1/chat/completions",
                 json=payload,
                 headers=headers,
@@ -209,7 +209,7 @@ async def search_all_articles(progress_callback=None) -> list[dict]:
     seen_urls = set()
 
     for i, query in enumerate(SEARCH_QUERIES):
-        raw = _call_deepseek(query)
+        raw = await _call_deepseek(query)
         count_before = len(all_articles)
 
         if raw:
