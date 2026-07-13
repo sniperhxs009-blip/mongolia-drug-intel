@@ -52,6 +52,12 @@ ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 if not ADMIN_TOKEN:
     log.warning("ADMIN_TOKEN 未设置！采集接口无鉴权保护")
 
+# 启动时清除旧数据文件（避免上次部署残留的种子数据反复出现）
+_intel_file = BASE_DIR / "data" / "mongolia_drug_intel.json"
+if _intel_file.exists():
+    _intel_file.unlink()
+    log.info("已清除旧数据文件，页面初始为空")
+
 app = FastAPI(
     title="蒙古国涉毒新闻情报爬虫系统",
     description="定向采集蒙古国涉毒资讯，覆盖 19 个数据源",
