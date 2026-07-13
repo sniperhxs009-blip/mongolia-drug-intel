@@ -27,11 +27,10 @@ TRUSTED_DOMAINS = [
     "unodc.org", "interpol.int", "incb.org",
     "thediplomat.com", "eurasianet.org", "rfa.org",
     "voanews.com", "abc.net.au", "dw.com", "nikkei.com",
-    "people.com.cn", "mps.gov.cn", "nncc.org.cn", "nncc626.com",
     "odkb-csto.org",
 ]
 
-# 17 个多角度查询（并行执行，每步上报进度）
+# 13 个多角度查询（并行执行，每步上报进度）
 SEARCH_QUERIES = [
     # 国际组织
     "search site:unodc.org Mongolia drug narcotics trafficking. list real articles as JSON with title, URL, Chinese summary.",
@@ -52,11 +51,6 @@ SEARCH_QUERIES = [
     "search Mongolia new psychoactive substance drug trend fentanyl ketamine. list real articles as JSON with title, URL, Chinese summary.",
     # 蒙文搜索 + 执法
     "search Mongolia khark tamkhi monsuuruulakh bodis narkotik police raid arrest. list real articles as JSON with title, URL, Chinese summary.",
-    # 中文来源：中蒙跨境缉毒
-    "search site:people.com.cn 蒙古 毒品 贩毒 缉毒 禁毒. list real articles as JSON with title, URL, Chinese summary.",
-    "search site:mps.gov.cn 蒙古 毒品 贩毒 跨境. list real articles as JSON with title, URL, Chinese summary.",
-    "search site:nncc.org.cn OR site:nncc626.com 蒙古 毒品 禁毒. list real articles as JSON with title, URL, Chinese summary.",
-    "search 中蒙 跨境毒品 内蒙古 缉毒 禁毒 查获. list real articles as JSON with title, URL, Chinese summary.",
 ]
 
 REFUSE_SIGNALS = [
