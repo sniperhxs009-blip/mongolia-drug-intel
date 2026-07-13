@@ -239,6 +239,7 @@ async def api_crawl_stream(request: Request):
     async def event_generator():
         """SSE 事件生成器"""
         try:
+            yield f"event: connected\ndata: {json.dumps({'msg': '采集已连接，正在初始化...'}, ensure_ascii=False)}\n\n"
             # 在后台启动采集任务
             crawl_task = asyncio.create_task(coordinator.crawl_all_streaming())
 
