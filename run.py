@@ -199,34 +199,34 @@ async def api_crawl_stream(request: Request):
 
     # 用于在回调中存放新采集的文章
     article_queue: asyncio.Queue = asyncio.Queue()
-    storage_lock = asyncio.Lock()  # 防止 append 和 translate save 竞态覆盖
+    translate_tasks: list = []  # 跟踪所有后台翻译任务
+    pending_translations: dict = {}  # source_url -> {cn_title, cn_summary}，采集结束后统一写入
 
     async def on_article(item: dict):
-        """每解析出一条情报时：立即推送 → 后台翻译 → 更新"""
-        # 先立即推送原文（不等翻译），加锁防止与翻译保存竞态
-        async with storage_lock:
-            is_new = append_single_intel(item)
+        """每解析出一条情报时：立即推送 + 写入 JSON，后台翻译仅推送前端不写 JSON"""
+        is_new = append_single_intel(item)
         if is_new:
             crawl_state["total_articles"] += 1
         await article_queue.put(("article", item))
 
-        # 后台异步翻译，完成后更新 JSON 并推送更新
+        # 后台异步翻译：只推送到前端，不写 JSON（避免竞态覆盖），采集结束后统一批量写入
         async def translate_and_update():
             try:
                 translated = await translate_article(dict(item))
-                async with storage_lock:
-                    existing = load_existing_intel()
-                    for i, a in enumerate(existing):
-                        if a.get("source_url") == item.get("source_url"):
-                            existing[i]["cn_title"] = translated.get("cn_title", "")
-                            existing[i]["cn_summary"] = translated.get("cn_summary", "")
-                            save_intel(existing)
-                            await article_queue.put(("translate", translated))
-                            break
+                url = item.get("source_url", "")
+                if url:
+                    pending_translations[url] = {
+                        "cn_title": translated.get("cn_title", ""),
+                        "cn_summary": translated.get("cn_summary", ""),
+                    }
+                translated["source_url"] = url
+                translated["news_title"] = item.get("news_title", "")
+                await article_queue.put(("translate", translated))
             except Exception:
                 pass
 
-        asyncio.create_task(translate_and_update())
+        t = asyncio.create_task(translate_and_update())
+        translate_tasks.append(t)
 
     async def on_progress(msg: str):
         """进度更新"""
@@ -273,9 +273,22 @@ async def api_crawl_stream(request: Request):
                         break
                     yield ": heartbeat\n\n"
 
-            # 采集完成
+            # 采集完成 — 等待所有后台翻译任务结束，统一批量写入 JSON（避免竞态覆盖）
             result = await crawl_task
             total = result.get("total_articles", 0) if isinstance(result, dict) else 0
+
+            if translate_tasks:
+                await asyncio.gather(*translate_tasks, return_exceptions=True)
+            if pending_translations:
+                existing = load_existing_intel()
+                for a in existing:
+                    url = a.get("source_url", "")
+                    if url in pending_translations:
+                        a["cn_title"] = pending_translations[url]["cn_title"]
+                        a["cn_summary"] = pending_translations[url]["cn_summary"]
+                save_intel(existing)
+                log.info("批量写入 %d 条翻译", len(pending_translations))
+
             yield f"event: done\ndata: {json.dumps({'total_articles': total}, ensure_ascii=False)}\n\n"
 
         except asyncio.CancelledError:
