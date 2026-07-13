@@ -214,11 +214,7 @@
             const url = escapeHtml(item.source_url || '#');
             const category = escapeHtml(item.site_category || '');
 
-            // 搜索引擎发现的文章，URL 可能不真实，用 Google 搜索标题代替
-            const isSearchEngine = category === '搜索引擎发现';
-            const sourceLinkHtml = isSearchEngine
-                ? `<a class="source-link" href="https://www.google.com/search?q=${encodeURIComponent(item.news_title || '')}" target="_blank" rel="noopener">搜索原文 →</a>`
-                : `<a class="source-link" href="${url}" target="_blank" rel="noopener">查看原文 →</a>`;
+            const sourceLinkHtml = `<a class="source-link" href="${url}" target="_blank" rel="noopener">查看原文 →</a>`;
 
             // 只有当翻译和原文不同时才显示中文标题
             const showCnTitle = cnTitle && cnTitle !== title;
