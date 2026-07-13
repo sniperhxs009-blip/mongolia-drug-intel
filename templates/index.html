@@ -214,11 +214,7 @@
             const url = escapeHtml(item.source_url || '#');
             const category = escapeHtml(item.site_category || '');
 
-            // DeepSeek 搜索结果 URL 是 AI 编造的（已验证 404），只能用 Google 搜索找原文
-            const isSearchEngine = category === '搜索引擎发现';
-            const sourceLinkHtml = isSearchEngine
-                ? `<a class="source-link" href="https://www.google.com/search?q=${encodeURIComponent(item.news_title || '')}" target="_blank" rel="noopener">Google搜索原文 →</a>`
-                : `<a class="source-link" href="${url}" target="_blank" rel="noopener">查看原文 →</a>`;
+            const sourceLinkHtml = `<a class="source-link" href="${url}" target="_blank" rel="noopener">查看原文 →</a>`;
 
             // 只有当翻译和原文不同时才显示中文标题
             const showCnTitle = cnTitle && cnTitle !== title;
