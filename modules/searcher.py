@@ -726,12 +726,23 @@ class StreamingCrawlCoordinator:
 
         try:
             # ============================================================
-            # Phase 0: DeepSeek 联网搜索（国内IP，直接返回完整文章）
+            # Phase 0: DeepSeek 联网搜索（直接返回完整文章）
             # ============================================================
             await self._progress(json.dumps({"type":"phase","phase":"search_engine","msg":"DeepSeek 联网搜索中..."}))
             try:
                 from modules.search_engines import search_all_articles
-                search_articles = search_all_articles()
+
+                async def search_progress(phase, current, total, article_count, msg):
+                    await self._progress(json.dumps({
+                        "type": "search_progress",
+                        "phase": phase,
+                        "current": current,
+                        "total": total,
+                        "article_count": article_count,
+                        "msg": msg,
+                    }))
+
+                search_articles = await search_all_articles(progress_callback=search_progress)
                 log.info("DeepSeek 搜索: %d 篇完整文章", len(search_articles))
                 await self._progress(json.dumps({
                     "type":"search_done","total_urls":len(search_articles)

@@ -471,6 +471,25 @@
                     progressText.textContent = `启动采集：${totalSites} 个站点，${totalBatches} 个批次`;
                     break;
 
+                case 'phase':
+                    progressText.textContent = data.msg || data.phase || '处理中...';
+                    break;
+
+                case 'search_progress':
+                    // DeepSeek 搜索进度: current/total, article_count 累计
+                    const spct = Math.round((data.current || 0) / (data.total || 12) * 100);
+                    percentEl.textContent = Math.min(spct, 50) + '%';
+                    fillEl.style.width = Math.min(spct, 50) + '%';
+                    progressText.textContent = data.msg || `DeepSeek 搜索 ${data.current}/${data.total}`;
+                    if (data.article_count > 0) {
+                        liveCountEl.innerHTML = `DeepSeek 已发现 <strong>${data.article_count}</strong> 篇文章`;
+                    }
+                    break;
+
+                case 'search_done':
+                    liveCountEl.innerHTML = `DeepSeek 搜索完成：<strong>${data.total_urls || 0}</strong> 篇`;
+                    break;
+
                 case 'batch_start':
                     currentBatch = data.batch;
                     totalBatches = data.total_batches;
