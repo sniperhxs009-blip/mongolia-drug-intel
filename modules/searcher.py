@@ -745,28 +745,17 @@ class StreamingCrawlCoordinator:
                     "type":"search_done","total_urls":len(search_articles)
                 }))
 
-                # URL 验证：HEAD 请求检查链接是否真实存在，404/连接失败则丢弃
-                verified = 0
-                async with httpx.AsyncClient(timeout=6, follow_redirects=True) as verify_client:
-                    for article in search_articles:
-                        if self.cancel_event.is_set():
-                            break
-                        url = article.get("source_url", "")
-                        title = article.get("news_title", "")
-                        if not title or len(title) < 5:
-                            continue
-                        if url:
-                            try:
-                                resp = await verify_client.head(url)
-                                if resp.status_code == 404 or resp.status_code >= 500:
-                                    continue
-                            except Exception:
-                                continue
-                            self.checkpoint.mark_crawled(url)
-                        verified += 1
-                        total_articles += 1
-                        await self._article_callback(article)
-                log.info("AI 搜索验证: %d/%d 篇通过", verified, len(search_articles))
+                for article in search_articles:
+                    if self.cancel_event.is_set():
+                        break
+                    url = article.get("source_url", "")
+                    title = article.get("news_title", "")
+                    if not title or len(title) < 5:
+                        continue
+                    if url:
+                        self.checkpoint.mark_crawled(url)
+                    total_articles += 1
+                    await self._article_callback(article)
 
                 await self._progress(json.dumps({
                     "type":"search_articles","count":total_articles
