@@ -409,29 +409,6 @@ class StreamingCrawlCoordinator:
         discovered = []
         drug_kw = _get_drug_keywords()
 
-        # Phase 0: 搜索引擎发现（用 Bing 索引直接搜 site:域名 + 毒品关键词）
-        if len(discovered) < 5:
-            try:
-                from modules.search_engines import _search_ddg
-                site_domain_clean = domain.replace("www.", "")
-                for kw in drug_kw[:4]:  # 用前4个关键词
-                    if self.cancel_event.is_set() or len(discovered) >= 10:
-                        break
-                    query = f"site:{site_domain_clean} {kw}"
-                    results = _search_ddg(query, max_results=8)
-                    for r in results:
-                        url = r.get("url", "")
-                        if url and url not in discovered:
-                            discovered.append(url)
-                    await asyncio.sleep(0.1)
-                if discovered:
-                    await self._progress(json.dumps({
-                        "type":"search_hit","site":site.get("name",""),
-                        "links":len(discovered)
-                    }))
-            except Exception as e:
-                log.debug("搜索引擎发现失败 [%s]: %s", site.get("name"), e)
-
         # Phase 1: RSS（标题关键词预筛，最快定位涉毒文章）
         for rss_path in RSS_PATHS:
             if self.cancel_event.is_set():
@@ -723,9 +700,9 @@ class StreamingCrawlCoordinator:
 
         try:
             # ============================================================
-            # Phase 0: AI 联网搜索
+            # Phase 0: RSS 新闻检索
             # ============================================================
-            await self._progress(json.dumps({"type":"phase","phase":"search_engine","msg":"AI 联网搜索中..."}))
+            await self._progress(json.dumps({"type":"phase","phase":"search_engine","msg":"RSS 新闻检索中..."}))
             try:
                 from modules.search_engines import search_all_articles
 
@@ -740,7 +717,7 @@ class StreamingCrawlCoordinator:
                     }))
 
                 search_articles = await search_all_articles(progress_callback=search_progress)
-                log.info("AI 搜索: %d 篇完整文章", len(search_articles))
+                log.info("RSS 搜索: %d 篇完整文章", len(search_articles))
                 await self._progress(json.dumps({
                     "type":"search_done","total_urls":len(search_articles)
                 }))
@@ -761,7 +738,7 @@ class StreamingCrawlCoordinator:
                     "type":"search_articles","count":total_articles
                 }))
             except Exception as e:
-                log.warning("AI 搜索异常: %s", e)
+                log.warning("RSS 搜索异常: %s", e)
 
             # ============================================================
             # Phase 1-2: 常规站点采集
