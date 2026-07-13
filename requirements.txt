@@ -7,4 +7,4 @@ apscheduler==3.11.0
 jinja2==3.1.5
 python-multipart==0.0.20
 deep-translator==1.11.4
-curl_cffi>=0.7.0
+# DeepSeek API 联网搜索，取代 ddgs/curl_cffi 等第三方搜索库
