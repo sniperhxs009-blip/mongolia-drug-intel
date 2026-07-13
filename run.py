@@ -52,8 +52,15 @@ ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 if not ADMIN_TOKEN:
     log.warning("ADMIN_TOKEN 未设置！采集接口无鉴权保护")
 
-# 启动时清除旧数据文件（避免上次部署残留的种子数据反复出现）
-_intel_file = BASE_DIR / "data" / "mongolia_drug_intel.json"
+# Vercel 上用 /tmp，其他环境用项目目录下的 data/
+if os.environ.get("VERCEL"):
+    DATA_DIR = Path("/tmp/data")
+else:
+    DATA_DIR = BASE_DIR / "data"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+# 启动时清除旧数据文件
+_intel_file = DATA_DIR / "mongolia_drug_intel.json"
 if _intel_file.exists():
     _intel_file.unlink()
     log.info("已清除旧数据文件，页面初始为空")
@@ -61,14 +68,11 @@ if _intel_file.exists():
 app = FastAPI(
     title="蒙古国涉毒新闻情报爬虫系统",
     description="定向采集蒙古国涉毒资讯，覆盖 19 个数据源",
-    version="5.1.0",
+    version="6.0.0",
 )
 
 TEMPLATES_DIR = BASE_DIR / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
-
-DATA_DIR = BASE_DIR / "data"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # 全局采集状态
 crawl_state = {

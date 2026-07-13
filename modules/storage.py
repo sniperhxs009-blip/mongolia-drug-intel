@@ -14,11 +14,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-# 项目根目录
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data"
+# 项目根目录 — Vercel 上 /tmp 是唯一可写目录
+if os.environ.get("VERCEL"):
+    DATA_DIR = Path("/tmp/data")
+else:
+    BASE_DIR = Path(__file__).resolve().parent.parent
+    DATA_DIR = BASE_DIR / "data"
 
-# 确保数据目录存在
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 INTEL_FILE = DATA_DIR / "mongolia_drug_intel.json"
