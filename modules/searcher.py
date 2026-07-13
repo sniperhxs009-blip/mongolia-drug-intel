@@ -484,12 +484,15 @@ class StreamingCrawlCoordinator:
         try:
             html = await self._http_get(client, base_url + "/mn/")
             if not html:
+                await self._progress(json.dumps({"type":"site_detail","site":"蒙通社MONTSAME","msg":"montsame首页获取失败，跳过ID采样"}))
                 return discovered
             ids = re.findall(r'/read/(\d+)', html)
             if not ids:
+                await self._progress(json.dumps({"type":"site_detail","site":"蒙通社MONTSAME","msg":"montsame首页无ID，跳过采样"}))
                 return discovered
             max_id = max(int(i) for i in ids)
             min_id = max(0, max_id - 6000)
+            await self._progress(json.dumps({"type":"site_detail","site":"蒙通社MONTSAME","msg":f"montsame随机采样: {min_id}-{max_id}, 600个ID"}))
             log.info("montsame.mn 随机采样: 最新ID=%d, 范围 %d-%d, 采样600", max_id, min_id, max_id)
 
             # 随机采样 600 个 ID（比固定步长覆盖更均匀）
@@ -511,6 +514,7 @@ class StreamingCrawlCoordinator:
                     title = re.sub(r'<[^>]+>', '', title)
                     if any(kw.lower() in title.lower() for kw in drug_keywords):
                         log.info("montsame.mn 采样命中: %s — %s", url.rsplit("/", 1)[-1], title[:60])
+                        await self._progress(json.dumps({"type":"sampling_hit","site":"蒙通社MONTSAME","url":url,"title":title[:60]}))
                         discovered.append(url)
 
             batch_size = 15
@@ -534,12 +538,15 @@ class StreamingCrawlCoordinator:
         try:
             html = await self._http_get(client, base_url)
             if not html:
+                await self._progress(json.dumps({"type":"site_detail","site":"See.mn","msg":"see.mn首页获取失败，跳过ID采样"}))
                 return discovered
             ids = re.findall(r'/(\d+)\.html', html)
             if not ids:
+                await self._progress(json.dumps({"type":"site_detail","site":"See.mn","msg":"see.mn首页无ID，跳过采样"}))
                 return discovered
             max_id = max(int(i) for i in ids)
             min_id = max(0, max_id - 6000)
+            await self._progress(json.dumps({"type":"site_detail","site":"See.mn","msg":f"see.mn随机采样: {min_id}-{max_id}, 600个ID"}))
             log.info("see.mn 随机采样: 最新ID=%d, 范围 %d-%d, 采样600", max_id, min_id, max_id)
 
             sample_ids = random.sample(range(min_id, max_id + 1), min(600, max_id - min_id + 1))
@@ -557,6 +564,7 @@ class StreamingCrawlCoordinator:
                     title = re.sub(r'<[^>]+>', '', title)
                     if any(kw.lower() in title.lower() for kw in drug_keywords):
                         log.info("see.mn 采样命中: ID=%s — %s", url.rsplit("/", 1)[-1], title[:60])
+                        await self._progress(json.dumps({"type":"sampling_hit","site":"See.mn","url":url,"title":title[:60]}))
                         discovered.append(url)
 
             batch_size = 15
