@@ -1,10 +1,10 @@
 {
   "categories": {
-    "category1_national_drug_enforcement": {
-      "name": "蒙古国国家级禁毒执法&监管政府机构",
+    "category1_drug_enforcement": {
+      "name": "蒙古国国家级禁毒执法核心机构（一线缉毒办案主体）",
       "sites": [
         {
-          "name": "蒙古国海关总署",
+          "name": "蒙古国海关总局",
           "name_en": "Mongolia Customs",
           "url": "https://customs.gov.mn",
           "search_urls": [
@@ -15,12 +15,76 @@
           "category": "government"
         },
         {
-          "name": "蒙古国药品与医疗器械监管局MMRA",
-          "name_en": "MMRA Mongolia",
-          "url": "https://mmra.gov.mn",
+          "name": "蒙古国边防总局",
+          "name_en": "Border Protection Office",
+          "url": "https://bpo.gov.mn",
           "search_urls": [
-            "https://mmra.gov.mn/search?q={keyword}",
-            "https://mmra.gov.mn/news?q={keyword}"
+            "https://bpo.gov.mn/search?q={keyword}"
+          ],
+          "language": "mn",
+          "category": "government"
+        },
+        {
+          "name": "蒙古国紧急状况总局",
+          "name_en": "NEMA Mongolia",
+          "url": "https://nema.gov.mn",
+          "search_urls": [
+            "https://nema.gov.mn/search?q={keyword}"
+          ],
+          "language": "mn",
+          "category": "government"
+        },
+        {
+          "name": "蒙古国警察总局刑事侦查局",
+          "name_en": "Criminal Police Department",
+          "url": "https://criminal-police.opengov.mn",
+          "search_urls": [
+            "https://criminal-police.opengov.mn/search?q={keyword}"
+          ],
+          "language": "mn",
+          "category": "government"
+        }
+      ]
+    },
+    "category2_judicial_regulatory": {
+      "name": "蒙古国顶层统筹&司法监管机构（政策立法、案件审判）",
+      "sites": [
+        {
+          "name": "蒙古国政府门户",
+          "name_en": "Mongolia Government Portal",
+          "url": "https://mongolia.gov.mn",
+          "search_urls": [
+            "https://mongolia.gov.mn/search?q={keyword}"
+          ],
+          "language": "mn",
+          "category": "government"
+        },
+        {
+          "name": "蒙古国司法与内务部",
+          "name_en": "Ministry of Justice and Home Affairs",
+          "url": "https://mojha.gov.mn",
+          "search_urls": [
+            "https://mojha.gov.mn/search?q={keyword}"
+          ],
+          "language": "mn",
+          "category": "government"
+        },
+        {
+          "name": "蒙古国国家法医总局",
+          "name_en": "National Forensic Agency",
+          "url": "https://nfa.gov.mn",
+          "search_urls": [
+            "https://nfa.gov.mn/search?q={keyword}"
+          ],
+          "language": "mn",
+          "category": "government"
+        },
+        {
+          "name": "蒙古国议会",
+          "name_en": "Parliament of Mongolia",
+          "url": "https://parliament.mn",
+          "search_urls": [
+            "https://parliament.mn/search?q={keyword}"
           ],
           "language": "mn",
           "category": "government"
@@ -37,17 +101,6 @@
           "category": "government"
         },
         {
-          "name": "蒙古国司法部",
-          "name_en": "Ministry of Justice Mongolia",
-          "url": "https://justice.gov.mn",
-          "search_urls": [
-            "https://justice.gov.mn/search?q={keyword}",
-            "https://justice.gov.mn/news?q={keyword}"
-          ],
-          "language": "mn",
-          "category": "government"
-        },
-        {
           "name": "蒙古国国家安全总局",
           "name_en": "National Security Agency",
           "url": "https://nsa.gov.mn",
@@ -57,49 +110,37 @@
           ],
           "language": "mn",
           "category": "government"
+        },
+        {
+          "name": "蒙古国药品与医疗器械监管局MMRA",
+          "name_en": "MMRA Mongolia",
+          "url": "https://mmra.gov.mn",
+          "search_urls": [
+            "https://mmra.gov.mn/search?q={keyword}",
+            "https://mmra.gov.mn/news?q={keyword}"
+          ],
+          "language": "mn",
+          "category": "government"
         }
       ]
     },
-    "category2_international_agencies": {
-      "name": "国际驻蒙古禁毒官方机构",
+    "category3_health_rehab": {
+      "name": "蒙古国卫健&戒毒防控体系（成瘾治疗、校园禁毒预防）",
       "sites": [
         {
-          "name": "UNODC联合国毒品和犯罪问题办公室蒙古站",
-          "name_en": "UNODC Mongolia",
-          "url": "https://www.unodc.org/mongolia",
+          "name": "蒙古国卫生部",
+          "name_en": "Ministry of Health Mongolia",
+          "url": "https://mohs.mn",
           "search_urls": [
-            "https://www.unodc.org/mongolia/en/search.html?q={keyword}",
-            "https://www.unodc.org/mongolia/en/index.html"
+            "https://mohs.mn/search?q={keyword}"
           ],
-          "language": "en",
-          "category": "international"
-        },
-        {
-          "name": "联合国蒙古国办事处",
-          "name_en": "UN Mongolia",
-          "url": "https://mongolia.un.org",
-          "search_urls": [
-            "https://mongolia.un.org/en/search?q={keyword}",
-            "https://mongolia.un.org/en/news"
-          ],
-          "language": "en",
-          "category": "international"
-        },
-        {
-          "name": "国际刑警组织蒙古国家中心局",
-          "name_en": "INTERPOL Mongolia NCB",
-          "url": "https://www.interpol.int/en/Who-we-are/Member-countries/Asia-South-Pacific/MONGOLIA",
-          "search_urls": [
-            "https://www.interpol.int/en/News-and-Events?q={keyword}",
-            "https://www.interpol.int/en/Who-we-are/Member-countries/Asia-South-Pacific/MONGOLIA"
-          ],
-          "language": "en",
-          "category": "international"
+          "language": "mn",
+          "category": "government"
         }
       ]
     },
-    "category3_mongolian_news_media": {
-      "name": "蒙古主流新闻媒体",
+    "category4_mongolian_news_media": {
+      "name": "蒙古国官方通讯社+本土权威主流媒体",
       "sites": [
         {
           "name": "蒙通社MONTSAME",
@@ -134,12 +175,12 @@
           "category": "media"
         },
         {
-          "name": "GOGO.MN",
-          "name_en": "GOGO.MN",
-          "url": "https://gogo.mn",
+          "name": "Shuum.mn",
+          "name_en": "Shuum.mn",
+          "url": "https://shuum.mn",
           "search_urls": [
-            "https://gogo.mn/search?q={keyword}",
-            "https://gogo.mn/search/{keyword}"
+            "https://shuum.mn/search?q={keyword}",
+            "https://shuum.mn/search/{keyword}"
           ],
           "language": "mn",
           "category": "media"
@@ -156,6 +197,17 @@
           "category": "media"
         },
         {
+          "name": "GOGO.MN",
+          "name_en": "GOGO.MN",
+          "url": "https://gogo.mn",
+          "search_urls": [
+            "https://gogo.mn/search?q={keyword}",
+            "https://gogo.mn/search/{keyword}"
+          ],
+          "language": "mn",
+          "category": "media"
+        },
+        {
           "name": "UB Post",
           "name_en": "UB Post",
           "url": "https://ubpost.mongolnews.mn",
@@ -164,17 +216,6 @@
             "https://ubpost.mongolnews.mn/?s={keyword}"
           ],
           "language": "en",
-          "category": "media"
-        },
-        {
-          "name": "Shuum.mn",
-          "name_en": "Shuum.mn",
-          "url": "https://shuum.mn",
-          "search_urls": [
-            "https://shuum.mn/search?q={keyword}",
-            "https://shuum.mn/search/{keyword}"
-          ],
-          "language": "mn",
           "category": "media"
         },
         {
@@ -201,9 +242,29 @@
         }
       ]
     },
-    "category4_china_mongolia_cross_border": {
-      "name": "中方中蒙跨境禁毒配套数据源",
+    "category5_china_cross_border": {
+      "name": "中蒙跨境协作我方官方信源",
       "sites": [
+        {
+          "name": "中国公安部",
+          "name_en": "Ministry of Public Security China",
+          "url": "https://www.mps.gov.cn",
+          "search_urls": [
+            "https://www.mps.gov.cn/search.html?q={keyword}"
+          ],
+          "language": "zh",
+          "category": "government_cn"
+        },
+        {
+          "name": "中国禁毒网",
+          "name_en": "China Anti-Drug Network",
+          "url": "https://www.nncc.org.cn",
+          "search_urls": [
+            "https://www.nncc.org.cn/search.html?q={keyword}"
+          ],
+          "language": "zh",
+          "category": "government_cn"
+        },
         {
           "name": "中国国家禁毒委员会办公室",
           "name_en": "China NNCC",
@@ -214,6 +275,26 @@
           ],
           "language": "zh",
           "category": "government_cn"
+        },
+        {
+          "name": "内蒙古自治区政府",
+          "name_en": "Inner Mongolia Government",
+          "url": "https://nmg.gov.mn",
+          "search_urls": [
+            "https://nmg.gov.mn/search?q={keyword}"
+          ],
+          "language": "mn",
+          "category": "government_cn"
+        },
+        {
+          "name": "人民网",
+          "name_en": "People's Daily Online",
+          "url": "https://www.people.com.cn",
+          "search_urls": [
+            "https://www.people.com.cn/search?q={keyword}"
+          ],
+          "language": "zh",
+          "category": "media_cn"
         },
         {
           "name": "中新网内蒙古频道",
@@ -228,9 +309,67 @@
         }
       ]
     },
-    "category5_ngo_research": {
-      "name": "民间调研&禁毒NGO",
+    "category6_international_agencies": {
+      "name": "国际禁毒权威组织（跨国禁毒合作、蒙古国毒品态势报告）",
       "sites": [
+        {
+          "name": "UNODC联合国毒品和犯罪问题办公室蒙古站",
+          "name_en": "UNODC Mongolia",
+          "url": "https://www.unodc.org/mongolia",
+          "search_urls": [
+            "https://www.unodc.org/mongolia/en/search.html?q={keyword}",
+            "https://www.unodc.org/mongolia/en/index.html"
+          ],
+          "language": "en",
+          "category": "international"
+        },
+        {
+          "name": "INTERPOL国际刑警组织",
+          "name_en": "INTERPOL Mongolia NCB",
+          "url": "https://www.interpol.int/en/Who-we-are/Member-countries/Asia-South-Pacific/MONGOLIA",
+          "search_urls": [
+            "https://www.interpol.int/en/News-and-Events?q={keyword}",
+            "https://www.interpol.int/en/Who-we-are/Member-countries/Asia-South-Pacific/MONGOLIA"
+          ],
+          "language": "en",
+          "category": "international"
+        },
+        {
+          "name": "集体安全条约组织CSTO",
+          "name_en": "CSTO ODKB",
+          "url": "https://odkb-csto.org",
+          "search_urls": [
+            "https://odkb-csto.org/search?q={keyword}"
+          ],
+          "language": "en",
+          "category": "international"
+        },
+        {
+          "name": "联合国蒙古国办事处",
+          "name_en": "UN Mongolia",
+          "url": "https://mongolia.un.org",
+          "search_urls": [
+            "https://mongolia.un.org/en/search?q={keyword}",
+            "https://mongolia.un.org/en/news"
+          ],
+          "language": "en",
+          "category": "international"
+        }
+      ]
+    },
+    "category7_ngo_research": {
+      "name": "涉毒领域NGO&科研智库",
+      "sites": [
+        {
+          "name": "蒙古国国立法律研究院",
+          "name_en": "National Legal Institute of Mongolia",
+          "url": "https://nli.gov.mn",
+          "search_urls": [
+            "https://nli.gov.mn/search?q={keyword}"
+          ],
+          "language": "mn",
+          "category": "ngo"
+        },
         {
           "name": "IRIM独立调研机构",
           "name_en": "IRIM Research",
