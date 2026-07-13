@@ -477,8 +477,8 @@ class StreamingCrawlCoordinator:
 
     async def _sample_montsame_ids(self, client: httpx.AsyncClient, base_url: str, drug_keywords: list[str]) -> list[str]:
         """montsame.mn 专用：通过文章 ID 并行采样发现涉毒文章。
-        从首页获取最新 ID，向后每 20 个 ID 采样，覆盖约 40 天（2000 个 ID）。
-        并行批量请求（受 semaphore 控制），发现 5 篇即停止。
+        从首页获取最新 ID，向后每 10 个 ID 采样，覆盖约 90 天（6000 个 ID）。
+        并行批量请求（受 semaphore 控制），发现 8 篇即停止。
         """
         discovered = []
         try:
@@ -489,20 +489,20 @@ class StreamingCrawlCoordinator:
             if not ids:
                 return discovered
             max_id = max(int(i) for i in ids)
-            log.info("montsame.mn 并行采样: 最新ID=%d, 回溯2000", max_id)
+            log.info("montsame.mn 并行采样: 最新ID=%d, 回溯6000", max_id)
 
-            # 生成候选 URL 列表（每 20 个 ID，MN + EN 两个语言版本）
+            # 生成候选 URL 列表（每 10 个 ID，MN + EN 两个语言版本）
             candidates = []
-            for article_id in range(max_id, max(0, max_id - 2000), -10):
+            for article_id in range(max_id, max(0, max_id - 6000), -10):
                 for lang_path in ["/mn/read/", "/en/read/"]:
                     candidates.append(f"{base_url}{lang_path}{article_id}")
 
             async def _check_one(url: str):
-                if self.cancel_event.is_set() or len(discovered) >= 5:
+                if self.cancel_event.is_set() or len(discovered) >= 8:
                     return
                 async with self.semaphore:
                     html_text = await self._http_get(client, url)
-                if html_text and len(discovered) < 5:
+                if html_text and len(discovered) < 8:
                     snippet = html_text[:2000]
                     title_match = re.search(r'<title>(.*?)</title>', snippet, re.DOTALL)
                     title = title_match.group(1).strip() if title_match else ""
@@ -514,7 +514,7 @@ class StreamingCrawlCoordinator:
             # 分批并行执行，每批 15 个并发
             batch_size = 15
             for i in range(0, len(candidates), batch_size):
-                if self.cancel_event.is_set() or len(discovered) >= 5:
+                if self.cancel_event.is_set() or len(discovered) >= 8:
                     break
                 batch = candidates[i:i + batch_size]
                 await asyncio.gather(*[_check_one(u) for u in batch], return_exceptions=True)
@@ -527,7 +527,7 @@ class StreamingCrawlCoordinator:
 
     async def _sample_see_ids(self, client: httpx.AsyncClient, base_url: str, drug_keywords: list[str]) -> list[str]:
         """see.mn 专用：通过文章 ID 并行采样。URL 格式 see.mn/{id}.html。
-        从首页获取最新 ID，向后每 30 个 ID 采样，覆盖约 60 天。
+        从首页获取最新 ID，向后每 10 个 ID 采样，覆盖约 90 天（6000 个 ID）。
         """
         discovered = []
         try:
@@ -538,18 +538,18 @@ class StreamingCrawlCoordinator:
             if not ids:
                 return discovered
             max_id = max(int(i) for i in ids)
-            log.info("see.mn 并行采样: 最新ID=%d, 回溯3000", max_id)
+            log.info("see.mn 并行采样: 最新ID=%d, 回溯6000", max_id)
 
             candidates = []
-            for article_id in range(max_id, max(0, max_id - 3000), -10):
+            for article_id in range(max_id, max(0, max_id - 6000), -10):
                 candidates.append(f"{base_url}/{article_id}.html")
 
             async def _check_one(url: str):
-                if self.cancel_event.is_set() or len(discovered) >= 5:
+                if self.cancel_event.is_set() or len(discovered) >= 8:
                     return
                 async with self.semaphore:
                     html_text = await self._http_get(client, url)
-                if html_text and len(discovered) < 5:
+                if html_text and len(discovered) < 8:
                     snippet = html_text[:2000]
                     title_match = re.search(r'<title>(.*?)</title>', snippet, re.DOTALL)
                     title = title_match.group(1).strip() if title_match else ""
@@ -560,7 +560,7 @@ class StreamingCrawlCoordinator:
 
             batch_size = 15
             for i in range(0, len(candidates), batch_size):
-                if self.cancel_event.is_set() or len(discovered) >= 5:
+                if self.cancel_event.is_set() or len(discovered) >= 8:
                     break
                 batch = candidates[i:i + batch_size]
                 await asyncio.gather(*[_check_one(u) for u in batch], return_exceptions=True)
