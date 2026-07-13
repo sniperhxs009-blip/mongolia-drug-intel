@@ -328,6 +328,46 @@ async def api_deepseek_search(request: Request):
     }
 
 
+@app.get("/api/debug/rss")
+async def api_debug_rss():
+    """诊断端点：测试 RSS 源连通性"""
+    import asyncio
+    import httpx
+    from modules.search_engines import _fetch_rss
+
+    results = {}
+    test_queries = [
+        ("google", "mongolia drug trafficking"),
+        ("google", "Mongolia narcotics seizure"),
+        ("bing", "mongolia drug"),
+    ]
+    for engine, query in test_queries:
+        articles, status = await _fetch_rss(query, engine)
+        results[f"{engine}:{query[:40]}"] = {
+            "status": status,
+            "count": len(articles),
+            "sample": articles[0]["news_title"][:80] if articles else None,
+        }
+
+    # Also test direct connectivity to Mongolian sites
+    site_tests = {}
+    test_sites = [
+        "https://montsame.mn",
+        "https://customs.gov.mn",
+        "https://ikon.mn",
+    ]
+    async with httpx.AsyncClient(timeout=8, follow_redirects=True,
+                                 headers={"User-Agent": "Mozilla/5.0"}) as c:
+        for url in test_sites:
+            try:
+                r = await c.get(url)
+                site_tests[url] = {"status": r.status_code, "len": len(r.text)}
+            except Exception as e:
+                site_tests[url] = {"error": str(e)[:100]}
+
+    return {"rss": results, "mongolian_sites": site_tests}
+
+
 # ============================================================
 # 启动入口
 # ============================================================
