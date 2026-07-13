@@ -262,14 +262,11 @@
         // ============================================================
 
         function connectSSE() {
-            if (!ADMIN_TOKEN) {
-                progressText.textContent = '未配置 ADMIN_TOKEN，采集功能不可用';
-                finishCrawl();
-                return;
-            }
-            // 构建 SSE URL（带 token 鉴权）
+            // 构建 SSE URL（如有 ADMIN_TOKEN 则带 token 鉴权）
             let url = '/api/crawl/stream';
-            url += '?token=' + encodeURIComponent(ADMIN_TOKEN);
+            if (ADMIN_TOKEN) {
+                url += '?token=' + encodeURIComponent(ADMIN_TOKEN);
+            }
 
             eventSource = new EventSource(url);
 
