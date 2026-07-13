@@ -493,7 +493,7 @@ class StreamingCrawlCoordinator:
 
             # 生成候选 URL 列表（每 20 个 ID，MN + EN 两个语言版本）
             candidates = []
-            for article_id in range(max_id, max(0, max_id - 2000), -20):
+            for article_id in range(max_id, max(0, max_id - 2000), -10):
                 for lang_path in ["/mn/read/", "/en/read/"]:
                     candidates.append(f"{base_url}{lang_path}{article_id}")
 
@@ -541,7 +541,7 @@ class StreamingCrawlCoordinator:
             log.info("see.mn 并行采样: 最新ID=%d, 回溯3000", max_id)
 
             candidates = []
-            for article_id in range(max_id, max(0, max_id - 3000), -30):
+            for article_id in range(max_id, max(0, max_id - 3000), -10):
                 candidates.append(f"{base_url}/{article_id}.html")
 
             async def _check_one(url: str):
