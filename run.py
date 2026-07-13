@@ -199,11 +199,13 @@ async def api_crawl_stream(request: Request):
 
     # 用于在回调中存放新采集的文章
     article_queue: asyncio.Queue = asyncio.Queue()
+    storage_lock = asyncio.Lock()  # 防止 append 和 translate save 竞态覆盖
 
     async def on_article(item: dict):
         """每解析出一条情报时：立即推送 → 后台翻译 → 更新"""
-        # 先立即推送原文（不等翻译）
-        is_new = append_single_intel(item)
+        # 先立即推送原文（不等翻译），加锁防止与翻译保存竞态
+        async with storage_lock:
+            is_new = append_single_intel(item)
         if is_new:
             crawl_state["total_articles"] += 1
         await article_queue.put(("article", item))
@@ -212,15 +214,15 @@ async def api_crawl_stream(request: Request):
         async def translate_and_update():
             try:
                 translated = await translate_article(dict(item))
-                # 更新 JSON 中的翻译字段
-                existing = load_existing_intel()
-                for i, a in enumerate(existing):
-                    if a.get("source_url") == item.get("source_url"):
-                        existing[i]["cn_title"] = translated.get("cn_title", "")
-                        existing[i]["cn_summary"] = translated.get("cn_summary", "")
-                        save_intel(existing)
-                        await article_queue.put(("translate", translated))
-                        break
+                async with storage_lock:
+                    existing = load_existing_intel()
+                    for i, a in enumerate(existing):
+                        if a.get("source_url") == item.get("source_url"):
+                            existing[i]["cn_title"] = translated.get("cn_title", "")
+                            existing[i]["cn_summary"] = translated.get("cn_summary", "")
+                            save_intel(existing)
+                            await article_queue.put(("translate", translated))
+                            break
             except Exception:
                 pass
 
