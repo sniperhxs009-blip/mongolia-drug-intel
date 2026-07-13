@@ -477,7 +477,7 @@ class StreamingCrawlCoordinator:
 
     async def _sample_montsame_ids(self, client: httpx.AsyncClient, base_url: str, drug_keywords: list[str]) -> list[str]:
         """montsame.mn 专用：通过文章 ID 并行采样发现涉毒文章。
-        从首页获取最新 ID，向后每 10 个 ID 采样，覆盖约 90 天（6000 个 ID）。
+        从首页获取最新 ID，向后每 5 个 ID 采样，覆盖约 90 天（6000 个 ID）。
         并行批量请求（受 semaphore 控制），发现 8 篇即停止。
         """
         discovered = []
@@ -491,9 +491,9 @@ class StreamingCrawlCoordinator:
             max_id = max(int(i) for i in ids)
             log.info("montsame.mn 并行采样: 最新ID=%d, 回溯6000", max_id)
 
-            # 生成候选 URL 列表（每 10 个 ID，MN + EN 两个语言版本）
+            # 生成候选 URL 列表（每 5 个 ID，MN + EN 两个语言版本）
             candidates = []
-            for article_id in range(max_id, max(0, max_id - 6000), -10):
+            for article_id in range(max_id, max(0, max_id - 6000), -5):
                 for lang_path in ["/mn/read/", "/en/read/"]:
                     candidates.append(f"{base_url}{lang_path}{article_id}")
 
@@ -527,7 +527,7 @@ class StreamingCrawlCoordinator:
 
     async def _sample_see_ids(self, client: httpx.AsyncClient, base_url: str, drug_keywords: list[str]) -> list[str]:
         """see.mn 专用：通过文章 ID 并行采样。URL 格式 see.mn/{id}.html。
-        从首页获取最新 ID，向后每 10 个 ID 采样，覆盖约 90 天（6000 个 ID）。
+        从首页获取最新 ID，向后每 5 个 ID 采样，覆盖约 90 天（6000 个 ID）。
         """
         discovered = []
         try:
@@ -541,7 +541,7 @@ class StreamingCrawlCoordinator:
             log.info("see.mn 并行采样: 最新ID=%d, 回溯6000", max_id)
 
             candidates = []
-            for article_id in range(max_id, max(0, max_id - 6000), -10):
+            for article_id in range(max_id, max(0, max_id - 6000), -5):
                 candidates.append(f"{base_url}/{article_id}.html")
 
             async def _check_one(url: str):
