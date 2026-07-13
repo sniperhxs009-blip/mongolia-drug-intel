@@ -179,13 +179,21 @@ def _parse_json_response(text: str) -> list[dict]:
         if not _is_mongolia_related(title, summary):
             continue
 
+        # 根据标题+摘要检测语种
+        lang = "en"  # 默认
+        combined = title + " " + summary
+        if any('一' <= c <= '鿿' for c in combined):
+            lang = "zh"
+        elif any('Ѐ' <= c <= 'ӿ' for c in combined):
+            lang = "mn"
+
         articles.append({
             "news_title": title,
             "source_url": url,
             "publish_time": item.get("date", ""),
             "content_summary": summary[:400],
             "source_name": extract_source_name(url),
-            "language": "auto",
+            "language": lang,
             "site_category": "搜索引擎发现",
         })
 
