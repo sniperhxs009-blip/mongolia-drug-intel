@@ -167,6 +167,17 @@
           "category": "media"
         },
         {
+          "name": "Shuum.mn",
+          "name_en": "Shuum.mn",
+          "url": "https://shuum.mn",
+          "search_urls": [
+            "https://shuum.mn/search?q={keyword}",
+            "https://shuum.mn/search/{keyword}"
+          ],
+          "language": "mn",
+          "category": "media"
+        },
+        {
           "name": "See.mn",
           "name_en": "See.mn",
           "url": "https://see.mn",
