@@ -331,7 +331,7 @@ class StreamingCrawlCoordinator:
         self.checkpoint = CrawlCheckpoint()
         self.on_article = on_article
         self.on_progress = on_progress
-        self.timeout = 6
+        self.timeout = 4
         self.semaphore = asyncio.Semaphore(20)
         self.cancel_event = asyncio.Event()
         # 阶梯反爬：记录每个域名的连续失败次数，用于增加延迟
@@ -347,7 +347,7 @@ class StreamingCrawlCoordinator:
         if self.on_article:
             await self.on_article(item)
 
-    async def _http_get(self, client: httpx.AsyncClient, url: str, max_retries: int = 3) -> Optional[str]:
+    async def _http_get(self, client: httpx.AsyncClient, url: str, max_retries: int = 1) -> Optional[str]:
         """执行 HTTP GET 请求，带指数退避重试"""
         parsed = urlparse(url)
         domain = parsed.netloc
@@ -721,56 +721,9 @@ class StreamingCrawlCoordinator:
 
         await self._progress(json.dumps({"type":"crawl_start","total_sites":total_sites}))
 
-        from modules.parser import parse_article_html
-        from modules.filter_module import strict_filter
-
         try:
             # ============================================================
-            # Phase 0: AI 联网搜索（直接返回完整文章）
-            # ============================================================
-            await self._progress(json.dumps({"type":"phase","phase":"search_engine","msg":"AI 联网搜索中..."}))
-            try:
-                from modules.search_engines import search_all_articles
-
-                async def search_progress(phase, current, total, article_count, msg):
-                    await self._progress(json.dumps({
-                        "type": "search_progress",
-                        "phase": phase,
-                        "current": current,
-                        "total": total,
-                        "article_count": article_count,
-                        "msg": msg,
-                    }))
-
-                search_articles = await search_all_articles(progress_callback=search_progress)
-                log.info("AI 搜索: %d 篇完整文章", len(search_articles))
-                await self._progress(json.dumps({
-                    "type":"search_done","total_urls":len(search_articles)
-                }))
-
-                # 直接推送文章（已在 search_engines.py 通过三重过滤：可信域名+毒品相关+蒙古相关）
-                from modules.filter_module import ai_classify
-                for article in search_articles:
-                    if self.cancel_event.is_set():
-                        break
-                    url = article.get("source_url", "")
-                    title = article.get("news_title", "")
-                    if not title or len(title) < 5:
-                        continue
-                    # 标记已处理
-                    if url:
-                        self.checkpoint.mark_crawled(url)
-                    total_articles += 1
-                    await self._article_callback(article)
-
-                await self._progress(json.dumps({
-                    "type":"search_articles","count":total_articles
-                }))
-            except Exception as e:
-                log.warning("AI 搜索异常: %s", e)
-
-            # ============================================================
-            # Phase 1-2: 常规批量站点采集
+            # 常规站点采集（所有 URL 来自真实网页解析，无虚假链接）
             # ============================================================
             batch_size = 10
             for i in range(0, total_sites, batch_size):
@@ -784,10 +737,14 @@ class StreamingCrawlCoordinator:
                     "sites":[s["name"] for s in batch]
                 }))
 
-                tasks = [self._crawl_site(site) for site in batch]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-
-                for site, result in zip(batch, results):
+                # 用 as_completed 逐个上报进度，不等待整批完成
+                futures = {asyncio.ensure_future(self._crawl_site(s)): s for s in batch}
+                for coro in asyncio.as_completed(list(futures.keys())):
+                    site = futures[coro]
+                    try:
+                        result = await coro
+                    except Exception:
+                        result = []
                     if isinstance(result, tuple) and len(result) == 2:
                         result_articles, rejected = result
                         result_count = len(result_articles)
