@@ -723,7 +723,48 @@ class StreamingCrawlCoordinator:
 
         try:
             # ============================================================
-            # 常规站点采集（所有 URL 来自真实网页解析，无虚假链接）
+            # Phase 0: AI 联网搜索
+            # ============================================================
+            await self._progress(json.dumps({"type":"phase","phase":"search_engine","msg":"AI 联网搜索中..."}))
+            try:
+                from modules.search_engines import search_all_articles
+
+                async def search_progress(phase, current, total, article_count, msg):
+                    await self._progress(json.dumps({
+                        "type": "search_progress",
+                        "phase": phase,
+                        "current": current,
+                        "total": total,
+                        "article_count": article_count,
+                        "msg": msg,
+                    }))
+
+                search_articles = await search_all_articles(progress_callback=search_progress)
+                log.info("AI 搜索: %d 篇完整文章", len(search_articles))
+                await self._progress(json.dumps({
+                    "type":"search_done","total_urls":len(search_articles)
+                }))
+
+                for article in search_articles:
+                    if self.cancel_event.is_set():
+                        break
+                    url = article.get("source_url", "")
+                    title = article.get("news_title", "")
+                    if not title or len(title) < 5:
+                        continue
+                    if url:
+                        self.checkpoint.mark_crawled(url)
+                    total_articles += 1
+                    await self._article_callback(article)
+
+                await self._progress(json.dumps({
+                    "type":"search_articles","count":total_articles
+                }))
+            except Exception as e:
+                log.warning("AI 搜索异常: %s", e)
+
+            # ============================================================
+            # Phase 1-2: 常规站点采集
             # ============================================================
             batch_size = 10
             for i in range(0, total_sites, batch_size):
