@@ -748,7 +748,7 @@ class StreamingCrawlCoordinator:
                     "type":"search_done","total_urls":len(search_articles)
                 }))
 
-                # 直接推送文章，不再爬取（DeepSeek已返回完整内容）
+                # 直接推送文章（DeepSeek 已在 search_engines.py 通过三重过滤：可信域名+毒品相关+蒙古相关）
                 from modules.filter_module import ai_classify
                 for article in search_articles:
                     if self.cancel_event.is_set():
@@ -756,9 +756,6 @@ class StreamingCrawlCoordinator:
                     url = article.get("source_url", "")
                     title = article.get("news_title", "")
                     if not title or len(title) < 5:
-                        continue
-                    # 快速关键词过滤
-                    if not _quick_keyword_check(title):
                         continue
                     # 标记已处理
                     if url:
