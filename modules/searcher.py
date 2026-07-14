@@ -691,7 +691,10 @@ class StreamingCrawlCoordinator:
 
         await self._progress(json.dumps({"type":"crawl_start","total_sites":total_sites}))
 
-        # 统一回调：文章立即推送 SSE
+        # 统一回调：文章立即推送 SSE（RSS 搜索引擎 + 站点爬虫共用）
+        # 需要 strict_filter 过滤，避免非蒙古/非毒品新闻混入
+        from modules.filter_module import strict_filter as _sf
+
         async def on_article_all(article: dict):
             if self.cancel_event.is_set():
                 return
@@ -701,6 +704,9 @@ class StreamingCrawlCoordinator:
                 return
             if url:
                 self.checkpoint.mark_crawled(url)
+            # RSS 搜索引擎返回的文章也必须经过 strict_filter，过滤掉非蒙古/非毒品新闻
+            if not _sf(article):
+                return
             nonlocal total_articles
             total_articles += 1
             await self._article_callback(article)

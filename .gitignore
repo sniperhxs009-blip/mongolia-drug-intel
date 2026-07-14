@@ -16,3 +16,4 @@ logs/
 !requirements.txt
 
 .vercel
+.env*
