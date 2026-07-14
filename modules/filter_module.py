@@ -18,6 +18,7 @@ import re
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Optional
 
 from modules.logger import get_logger
 
@@ -343,7 +344,8 @@ def _parse_flexible_date(date_str: str) -> Optional[datetime]:
 
     # 3. RFC 2822: Mon, 14 Jul 2026 10:30:00 +0800 (RSS pubDate)
     try:
-        return email_parse(date_str)
+        dt = email_parse(date_str)
+        return dt.replace(tzinfo=None)  # 转为无时区，与 datetime.now() 对齐
     except Exception:
         pass
 
