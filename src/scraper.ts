@@ -18,11 +18,17 @@ const DRUG_KEYWORDS_MN = [
 ];
 
 const DRUG_KEYWORDS_EN = [
-  "drug", "narcotic", "trafficking", "seizure", "smuggling",
+  "drug", "narcotic", "drug trafficking", "smuggling",
   "opioid", "fentanyl", "meth", "cocaine", "heroin", "cannabis",
-  "cartel", "arrest", "raid", "anti-drug", "illicit",
+  "cartel", "anti-drug",
   "UNODC", "interpol", "methamphetamine", "ecstasy",
+  "crystal meth", "drug smuggl", "drug bust", "narcotic traffick",
+  "synthetic drug", "illicit drug", "illicit traffick",
+  "drug lord", "drug dealer", "drug network",
 ];
+
+// Ambiguous keywords: only count if another strong drug keyword is also present
+const WEAK_KEYWORDS_EN = new Set(["trafficking", "seizure", "illicit", "arrest", "raid", "bust"]);
 
 const DRUG_KEYWORDS_ZH = [
   "毒品", "贩毒", "缉毒", "禁毒", "走私毒品", "跨境贩毒",
@@ -73,11 +79,19 @@ interface SerperResult {
 // ── Keyword matching ────────────────────────────────────────────────────────
 function hasDrugKeyword(text: string): boolean {
   const lower = text.toLowerCase();
-  return (
+
+  // Strong keywords (Mongolian, Chinese, or explicit drug terms in English)
+  const hasStrong =
     DRUG_KEYWORDS_MN.some((kw) => lower.includes(kw)) ||
-    DRUG_KEYWORDS_EN.some((kw) => lower.includes(kw)) ||
-    DRUG_KEYWORDS_ZH.some((kw) => lower.includes(kw))
-  );
+    DRUG_KEYWORDS_ZH.some((kw) => lower.includes(kw)) ||
+    DRUG_KEYWORDS_EN.some((kw) => lower.includes(kw));
+
+  if (hasStrong) return true;
+
+  // Weak keywords only count if accompanied by another weak keyword
+  // (prevents "child trafficking" or "cultural seizure" false positives)
+  const weakHits = [...WEAK_KEYWORDS_EN].filter((kw) => lower.includes(kw));
+  return weakHits.length >= 2;
 }
 
 function extractDomain(url: string): string {
@@ -112,11 +126,24 @@ const MONGOLIAN_SLD = new Set([
 const INTL_DRUG_DOMAINS = [
   "unodc.org", "interpol.int", "nncc626.com", "mps.gov.cn",
   "thediplomat.com", "unesco.org", "ocindex.net",
+  "incb.org", "state.gov",
 ];
+
+// Social media / video — cannot crawl content, skip
+const SKIP_DOMAINS = new Set([
+  "facebook.com", "youtube.com", "youtu.be",
+  "twitter.com", "x.com", "instagram.com",
+  "reddit.com", "linkedin.com",
+]);
 
 function isMongoliaRelevant(url: string, title: string, snippet: string): boolean {
   try {
     const host = new URL(url).hostname.replace(/^www\./, "");
+
+    // Skip social media / video sites — cannot crawl for content
+    for (const skip of SKIP_DOMAINS) {
+      if (host === skip || host.endsWith("." + skip)) return false;
+    }
 
     // Check if it's a known Mongolian domain
     if (MONGOLIAN_SLD.has(host)) return true;
