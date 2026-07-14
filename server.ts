@@ -127,7 +127,29 @@ app.post("/api/search", async (req, res) => {
     console.error("[API] Scrape error:", String(err).substring(0, 200));
   }
 
-  // Apply filters
+  // Apply time range filter
+  const now = new Date();
+  let cutoffDate: Date | null = null;
+  if (timeRange === "day") {
+    cutoffDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  } else if (timeRange === "week") {
+    cutoffDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  } else if (timeRange === "month") {
+    cutoffDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  }
+
+  if (cutoffDate) {
+    results = results.filter((item: any) => {
+      try {
+        const d = new Date(item.date);
+        return !isNaN(d.getTime()) && d >= cutoffDate!;
+      } catch {
+        return true; // keep if date unparseable
+      }
+    });
+  }
+
+  // Apply category / keyword filters
   if (selectedSiteCategories.length > 0 || selectedKeywords.length > 0 || customQuery) {
     results = results.filter((item: any) => {
       const matchedSite = TARGET_SITES.find((s: any) => s.queryDomain === item.siteUrl);
