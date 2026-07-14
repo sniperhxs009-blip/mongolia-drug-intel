@@ -586,36 +586,34 @@ class StreamingCrawlCoordinator:
 
     async def _sample_see_ids(self, client: httpx.AsyncClient, base_url: str, drug_keywords: list[str]) -> list[str]:
         """see.mn 专用：随机采样文章 ID。URL 格式 see.mn/{id}.html。
-        从首页获取最新 ID，在 6000 个 ID 范围内随机选 200 个，覆盖约 90 天。
-        高并发批量请求，发现 5 篇即停止。
+        从首页获取最新 ID，在 6000 个 ID 范围内随机选 50 个，快速扫描。
         """
         discovered = []
         try:
             html = await self._http_get(client, base_url)
             if not html:
                 log.warning("see.mn 首页获取失败")
-                await self._progress(json.dumps({"type":"site_detail","site":"See.mn","msg":"see.mn首页获取失败，跳过ID采样"}))
                 return discovered
             ids = re.findall(r'/(\d+)\.html', html)
             if not ids:
                 log.warning("see.mn 首页无ID")
-                await self._progress(json.dumps({"type":"site_detail","site":"See.mn","msg":"see.mn首页无ID，跳过采样"}))
                 return discovered
             max_id = max(int(i) for i in ids)
             min_id = max(0, max_id - 6000)
-            sample_size = min(200, max_id - min_id + 1)
+            sample_size = min(50, max_id - min_id + 1)
             sample_ids = random.sample(range(min_id, max_id + 1), sample_size)
             await self._progress(json.dumps({"type":"site_detail","site":"See.mn","msg":f"see.mn采样: {min_id}-{max_id}, {sample_size}个ID"}))
             log.info("see.mn 采样: 最新ID=%d, 范围 %d-%d, 采样%d", max_id, min_id, max_id, sample_size)
 
+            see_sem = self._domain_semaphores.get("see.mn", self.semaphore)
             candidates = [f"{base_url}/{aid}.html" for aid in sample_ids]
 
             async def _check_one(url: str):
-                if self.cancel_event.is_set() or len(discovered) >= 5:
+                if self.cancel_event.is_set() or len(discovered) >= 3:
                     return
-                async with self.semaphore:
+                async with see_sem:
                     html_text = await self._http_get(client, url)
-                if html_text and len(discovered) < 5:
+                if html_text and len(discovered) < 3:
                     snippet = html_text[:2000]
                     title_match = re.search(r'<title>(.*?)</title>', snippet, re.DOTALL)
                     title = title_match.group(1).strip() if title_match else ""
@@ -625,14 +623,14 @@ class StreamingCrawlCoordinator:
                         await self._progress(json.dumps({"type":"sampling_hit","site":"See.mn","url":url,"title":title[:60]}))
                         discovered.append(url)
 
-            batch_size = 30
+            batch_size = 10
             for i in range(0, len(candidates), batch_size):
-                if self.cancel_event.is_set() or len(discovered) >= 5:
+                if self.cancel_event.is_set() or len(discovered) >= 3:
                     break
                 batch = candidates[i:i + batch_size]
                 await asyncio.gather(*[_check_one(u) for u in batch], return_exceptions=True)
                 if i + batch_size < len(candidates):
-                    await asyncio.sleep(0.01)
+                    await asyncio.sleep(0.03)
 
         except Exception as e:
             log.warning("see.mn 采样异常: %s", e)
