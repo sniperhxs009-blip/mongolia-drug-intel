@@ -184,26 +184,33 @@ async function searchWithSerper(): Promise<SerperResult[]> {
 
   const queries: { q: string; gl: string; hl: string }[] = [];
 
-  // ── English news-focused searches ──
+  // ── English broad searches ──
   queries.push({ q: "Mongolia drug trafficking arrest seizure customs 2025 2026", gl: "mn", hl: "en" });
-  queries.push({ q: "Mongolia narcotics smuggling bust meth fentanyl 2025 2026", gl: "mn", hl: "en" });
+  queries.push({ q: "Mongolia narcotics smuggling bust meth fentanyl", gl: "mn", hl: "en" });
   queries.push({ q: "Mongolia cross-border drug smuggling China Russia", gl: "mn", hl: "en" });
+  queries.push({ q: "Mongolia drug cartel organized crime heroin cocaine", gl: "mn", hl: "en" });
+  queries.push({ q: "Mongolia opioid crisis substance abuse addiction", gl: "mn", hl: "en" });
 
   // ── Chinese cross-border news ──
   queries.push({ q: "蒙古国 毒品 贩毒 走私 缉毒 查获 缴获", gl: "cn", hl: "zh-cn" });
-  queries.push({ q: "中蒙 口岸 查获 毒品 安纳咖 冰毒", gl: "cn", hl: "zh-cn" });
+  queries.push({ q: "中蒙 口岸 查获 毒品 安纳咖 冰毒 海洛因", gl: "cn", hl: "zh-cn" });
   queries.push({ q: "蒙古 跨境 贩毒 海关 边防 走私毒品", gl: "cn", hl: "zh-cn" });
-  queries.push({ q: "二连浩特 满洲里 口岸 蒙古 走私毒品 查获", gl: "cn", hl: "zh-cn" });
+  queries.push({ q: "二连浩特 满洲里 口岸 蒙古 走私毒品", gl: "cn", hl: "zh-cn" });
+  queries.push({ q: "中蒙边境 缉毒 边防检查 吸毒 戒毒", gl: "cn", hl: "zh-cn" });
 
-  // ── Site-specific Mongolian news domains ──
-  for (const site of ["montsame.mn", "news.mn", "gogo.mn", "ikon.mn", "unuudur.mn"]) {
+  // ── Site-specific .mn news sites ──
+  for (const site of ["montsame.mn", "news.mn", "gogo.mn", "ikon.mn", "unuudur.mn", "24tsag.mn"]) {
     queries.push({ q: `site:${site} drug OR narcotic OR trafficking OR cannabis OR meth OR fentanyl OR heroin OR cocaine OR seizure OR arrest OR smuggling`, gl: "mn", hl: "en" });
   }
 
-  // ── Key international news sources ──
+  // ── Government sites ──
+  queries.push({ q: "site:customs.gov.mn drug OR narcotic OR seizure OR smuggling", gl: "mn", hl: "en" });
+  queries.push({ q: "site:police.gov.mn drug OR narcotic OR arrest", gl: "mn", hl: "en" });
+
+  // ── International orgs & news ──
+  queries.push({ q: "site:unodc.org Mongolia drug narcotic trafficking", gl: "mn", hl: "en" });
   queries.push({ q: "site:thediplomat.com Mongolia drug narcotic crime", gl: "mn", hl: "en" });
-  queries.push({ q: "site:eurasianet.org Mongolia drug narcotic", gl: "mn", hl: "en" });
-  queries.push({ q: "site:xinhuanet.com Mongolia drug trafficking narcotics", gl: "mn", hl: "en" });
+  queries.push({ q: "site:xinhuanet.com Mongolia drug trafficking", gl: "mn", hl: "en" });
 
   // ── Google News search (recent articles) ──
   const newsQueries = [
