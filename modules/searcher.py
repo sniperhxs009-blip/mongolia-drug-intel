@@ -687,7 +687,9 @@ class StreamingCrawlCoordinator:
         return articles, rejected_count
 
     async def crawl_all_streaming(self) -> dict:
-        """并行采集所有站点，含搜索引擎预发现 + 流式输出结果"""
+        """并行采集所有站点，含搜索引擎预发现 + 流式输出结果。
+        Vercel 上 RSS 与传统爬虫并行运行，共享 10s 窗口。
+        """
         if not self.lock.acquire():
             return {"error": "采集锁被占用"}
 
@@ -695,57 +697,74 @@ class StreamingCrawlCoordinator:
         total_sites = len(all_sites)
         site_results = {}
         total_articles = 0
+        _ON_VERCEL = os.environ.get("VERCEL", "") == "1"
 
         await self._progress(json.dumps({"type":"crawl_start","total_sites":total_sites}))
 
+        # 统一回调：文章立即推送 SSE
+        async def on_article_all(article: dict):
+            if self.cancel_event.is_set():
+                return
+            url = article.get("source_url", "")
+            title = article.get("news_title", "")
+            if not title or len(title) < 5:
+                return
+            if url:
+                self.checkpoint.mark_crawled(url)
+            nonlocal total_articles
+            total_articles += 1
+            await self._article_callback(article)
+
+        async def search_progress(phase, current, total, article_count, msg):
+            await self._progress(json.dumps({
+                "type": "search_progress", "phase": phase,
+                "current": current, "total": total,
+                "article_count": article_count, "msg": msg,
+            }))
+
         try:
-            # ============================================================
-            # Phase 0: RSS 新闻检索（流式推送，Vercel 10s 友好）
-            # ============================================================
-            await self._progress(json.dumps({"type":"phase","phase":"search_engine","msg":"RSS 新闻检索中..."}))
-            try:
-                from modules.search_engines import search_all_articles
+            from modules.search_engines import search_all_articles
 
-                async def search_progress(phase, current, total, article_count, msg):
-                    await self._progress(json.dumps({
-                        "type": "search_progress",
-                        "phase": phase,
-                        "current": current,
-                        "total": total,
-                        "article_count": article_count,
-                        "msg": msg,
-                    }))
-
-                # 用 on_article 回调实现流式推送：每发现一篇文章立即发 SSE
-                async def on_rss_article(article: dict):
-                    if self.cancel_event.is_set():
-                        return
-                    url = article.get("source_url", "")
-                    title = article.get("news_title", "")
-                    if not title or len(title) < 5:
-                        return
-                    if url:
-                        self.checkpoint.mark_crawled(url)
-                    nonlocal total_articles
-                    total_articles += 1
-                    await self._article_callback(article)
-
-                search_articles = await search_all_articles(
-                    progress_callback=search_progress,
-                    on_article=on_rss_article,
+            if _ON_VERCEL:
+                # ============================================================
+                # Vercel 模式: RSS + 传统爬虫并行，共享 9s 总超时
+                # ============================================================
+                rss_task = asyncio.create_task(
+                    search_all_articles(progress_callback=search_progress, on_article=on_article_all)
                 )
-                log.info("RSS 搜索: %d 篇完整文章", len(search_articles))
-                await self._progress(json.dumps({
-                    "type":"search_done","total_urls":len(search_articles)
-                }))
-            except Exception as e:
-                log.warning("RSS 搜索异常: %s", e)
+                crawl_task = asyncio.create_task(
+                    self._crawl_all_sites_fast(all_sites, site_results, on_article_all)
+                )
 
-            # ============================================================
-            # Phase 1-2: 常规站点采集（Vercel 上跳过，10s 超时不够）
-            # ============================================================
-            _ON_VERCEL = os.environ.get("VERCEL", "") == "1"
-            if not _ON_VERCEL:
+                await self._progress(json.dumps({"type":"phase","phase":"all","msg":"RSS + 19站点并行爬取中..."}))
+
+                done, pending = await asyncio.wait(
+                    [rss_task, crawl_task],
+                    timeout=9,
+                    return_when=asyncio.ALL_COMPLETED,
+                )
+                for t in pending:
+                    t.cancel()
+                # 收集 RSS 结果用于日志
+                try:
+                    rss_result = rss_task.result()
+                    log.info("RSS 搜索: %d 篇", len(rss_result))
+                except Exception:
+                    pass
+                await self._progress(json.dumps({
+                    "type":"search_done","total_urls":total_articles
+                }))
+            else:
+                # ============================================================
+                # 非 Vercel 模式: RSS 先跑，再跑传统爬虫
+                # ============================================================
+                await self._progress(json.dumps({"type":"phase","phase":"search_engine","msg":"RSS 新闻检索中..."}))
+                search_articles = await search_all_articles(
+                    progress_callback=search_progress, on_article=on_article_all
+                )
+                log.info("RSS 搜索: %d 篇", len(search_articles))
+                await self._progress(json.dumps({"type":"search_done","total_urls":len(search_articles)}))
+
                 batch_size = 10
                 for i in range(0, total_sites, batch_size):
                     if self.cancel_event.is_set():
@@ -757,8 +776,6 @@ class StreamingCrawlCoordinator:
                         "type":"batch_start","batch":batch_num,"total_batches":total_batches,
                         "sites":[s["name"] for s in batch]
                     }))
-
-                    # 用 as_completed 逐个上报进度，不等待整批完成
                     futures = {asyncio.ensure_future(self._crawl_site(s)): s for s in batch}
                     for coro in asyncio.as_completed(list(futures.keys())):
                         site = futures[coro]
@@ -768,26 +785,17 @@ class StreamingCrawlCoordinator:
                             result = []
                         if isinstance(result, tuple) and len(result) == 2:
                             result_articles, rejected = result
-                            result_count = len(result_articles)
-                            site_results[site["name"]] = result_count
-                            total_articles += result_count
-                            await self._progress(json.dumps({
-                                "type":"site_done","site":site["name"],"articles":result_count,
-                                "rejected": rejected,
-                            }))
+                            site_results[site["name"]] = len(result_articles)
+                            total_articles += len(result_articles)
                         elif isinstance(result, list):
-                            result_count = len(result)
-                            site_results[site["name"]] = result_count
-                            total_articles += result_count
-                            await self._progress(json.dumps({
-                                "type":"site_done","site":site["name"],"articles":result_count,
-                            }))
+                            site_results[site["name"]] = len(result)
+                            total_articles += len(result)
                         else:
                             site_results[site["name"]] = 0
-                            await self._progress(json.dumps({
-                                "type":"site_done","site":site["name"],"articles":0,
-                            }))
-
+                        await self._progress(json.dumps({
+                            "type":"site_done","site":site["name"],
+                            "articles":site_results[site["name"]],
+                        }))
                     await self._progress(json.dumps({
                         "type":"batch_done","batch":batch_num,"total_batches":total_batches,
                         "total_articles":total_articles
@@ -797,10 +805,94 @@ class StreamingCrawlCoordinator:
                 "type":"crawl_done","total_sites":total_sites,"total_articles":total_articles
             }))
 
+        except Exception as e:
+            log.warning("采集异常: %s", e)
         finally:
             self.lock.release()
 
         return {"total_articles": total_articles, "total_sites": total_sites, "site_results": site_results}
+
+    async def _crawl_all_sites_fast(self, all_sites: list, site_results: dict, on_article):
+        """Vercel 快速模式：所有 19 个站点并行爬取（主要用 RSS，跳过慢速检测）"""
+        from modules.parser import parse_article_html
+        from modules.filter_module import strict_filter
+
+        sem = asyncio.Semaphore(30)  # 高并发
+
+        async def _fast_crawl_one(site: dict):
+            if self.cancel_event.is_set():
+                return
+            site_name = site["name"]
+            site_url = site.get("url", "").rstrip("/")
+            domain = urlparse(site_url).netloc
+            drug_kw = _get_drug_keywords()
+
+            try:
+                async with httpx.AsyncClient(timeout=4, follow_redirects=True) as client:
+                    # 优先 RSS
+                    found_links = []
+                    for rss_path in RSS_PATHS:
+                        if len(found_links) >= 3:
+                            break
+                        try:
+                            rss_url = site_url + rss_path
+                            resp = await client.get(rss_url, headers={
+                                "User-Agent": get_random_ua(),
+                                "Accept": "text/xml,application/xml,*/*",
+                            })
+                            if resp.status_code == 200 and len(resp.text) > 200:
+                                links = _extract_rss_links_with_filter(resp.text, site_url, drug_kw)
+                                for l in links:
+                                    if l not in found_links:
+                                        found_links.append(l)
+                        except Exception:
+                            continue
+
+                    # 兜底：首页提取链接
+                    if len(found_links) < 2:
+                        try:
+                            resp = await client.get(site_url, headers={
+                                "User-Agent": get_random_ua(),
+                                "Accept": "text/html",
+                            })
+                            if resp.status_code == 200:
+                                links = extract_article_links(resp.text, site_url, domain)
+                                for l in links[:3]:
+                                    if l not in found_links:
+                                        found_links.append(l)
+                        except Exception:
+                            pass
+
+                    # 抓取文章详情
+                    articles_found = 0
+                    for link in found_links[:5]:
+                        if articles_found >= 3 or self.cancel_event.is_set():
+                            break
+                        try:
+                            async with sem:
+                                resp = await client.get(link, headers={
+                                    "User-Agent": get_random_ua(),
+                                    "Accept": "text/html",
+                                })
+                            if resp.status_code == 200 and resp.text:
+                                parsed = parse_article_html(resp.text, link, site)
+                                if parsed and strict_filter(parsed):
+                                    articles_found += 1
+                                    await on_article(parsed)
+                        except Exception:
+                            continue
+
+                    if articles_found > 0:
+                        site_results[site_name] = articles_found
+                        await self._progress(json.dumps({
+                            "type":"site_done","site":site_name,"articles":articles_found
+                        }))
+            except Exception:
+                pass
+
+        # 所有站点并行
+        tasks = [asyncio.create_task(_fast_crawl_one(s)) for s in all_sites]
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     def stop(self):
         self.cancel_event.set()
