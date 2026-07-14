@@ -162,7 +162,13 @@
                         pText.textContent = d.msg || ('RSS检索: ' + d.current + '/' + d.total);
                         pLive.innerHTML = '已采集 <strong>' + (d.article_count || articlesCache.length) + '</strong> 条';
                     } else if (d.type === 'search_done') {
-                        pText.textContent = 'RSS检索完成: ' + (d.total_urls || 0) + ' 条';
+                        pText.textContent = 'RSS检索完成: ' + (d.total_urls || 0) + ' 条, 过滤后 ' + (d.filtered || articlesCache.length) + ' 条';
+                        pLive.innerHTML = '已采集 <strong>' + articlesCache.length + '</strong> 条';
+                } else if (d.type === 'site_detail') {
+                        // montsame/see 采样进度
+                        pText.textContent = d.site + ': ' + (d.msg || '');
+                } else if (d.type === 'sampling_hit') {
+                        pText.textContent = d.site + ': 采样命中! ' + (d.title || '');
                         pLive.innerHTML = '已采集 <strong>' + articlesCache.length + '</strong> 条';
                     } else if (d.type === 'site_start') {
                         pText.textContent = '正在采集: ' + d.site;

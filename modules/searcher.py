@@ -96,6 +96,9 @@ def get_all_sites() -> list[dict]:
             site_info["category_key"] = cat_key
             site_info["category_name"] = category["name"]
             all_sites.append(site_info)
+    # 媒体站点优先（有 RSS、可达性高），再到政府/国际站点
+    cat_order = {"media": 0, "government": 1, "ngo": 2, "international": 3}
+    all_sites.sort(key=lambda s: cat_order.get(s.get("category", ""), 5))
     return all_sites
 
 
@@ -467,21 +470,18 @@ class StreamingCrawlCoordinator:
         return discovered[:8]
 
     async def _quick_check(self, site: dict) -> bool:
-        """3 秒超时快速检查站点是否可达，失败后 5 秒重试一次"""
+        """1.5 秒超时快速检查站点是否可达（失败不重试，不可达直接跳过）"""
         site_url = site.get("url", "").rstrip("/")
-        for attempt in range(2):
-            try:
-                async with httpx.AsyncClient(timeout=5, follow_redirects=True, verify=False) as client:
-                    resp = await client.get(site_url, headers={
-                        "User-Agent": get_random_ua(),
-                        "Accept": "text/html",
-                    })
-                    if 200 <= resp.status_code < 400:
-                        return True
-            except Exception:
-                pass
-            if attempt == 0:
-                await asyncio.sleep(5)
+        try:
+            async with httpx.AsyncClient(timeout=3, follow_redirects=True, verify=False) as client:
+                resp = await client.get(site_url, headers={
+                    "User-Agent": get_random_ua(),
+                    "Accept": "text/html",
+                })
+                if 200 <= resp.status_code < 400:
+                    return True
+        except Exception:
+            pass
         return False
 
     async def _sample_montsame_ids(self, client: httpx.AsyncClient, base_url: str, drug_keywords: list[str]) -> list[str]:
@@ -758,8 +758,8 @@ class StreamingCrawlCoordinator:
                 search_articles = await search_all_articles(
                     progress_callback=search_progress, on_article=on_article_all
                 )
-                log.info("RSS 搜索: %d 篇", len(search_articles))
-                await self._progress(json.dumps({"type":"search_done","total_urls":len(search_articles)}))
+                log.info("RSS 搜索: %d 篇(过滤前), 通过过滤: %d 篇", len(search_articles), total_articles)
+                await self._progress(json.dumps({"type":"search_done","total_urls":len(search_articles),"filtered":total_articles}))
 
                 batch_size = 10
                 for i in range(0, total_sites, batch_size):
