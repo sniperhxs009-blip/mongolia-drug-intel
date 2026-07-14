@@ -407,6 +407,126 @@ async def api_debug_rss():
     return {"rss": results, "mongolian_sites": site_tests}
 
 
+@app.get("/api/debug/montsame")
+async def api_debug_montsame():
+    """诊断端点：详细测试 MONTSAME 爬虫流程"""
+    import asyncio
+    import time
+    import re
+    import httpx
+    from modules.searcher import get_all_sites, get_random_ua
+
+    sites = get_all_sites()
+    montsame = [s for s in sites if 'montsame' in s['name'].lower() and '英文' not in s['name']]
+    if not montsame:
+        return {"error": "MONTSAME 站点未找到"}
+
+    site = montsame[0]
+    base_url = site.get("url", "").rstrip("/")
+    results = {"site": site["name"], "base_url": base_url, "steps": []}
+
+    headers = {
+        "User-Agent": get_random_ua(),
+        "Accept": "text/html",
+    }
+
+    async with httpx.AsyncClient(timeout=10, follow_redirects=True, verify=False) as c:
+        # Step 1: Quick check
+        t0 = time.time()
+        try:
+            resp = await c.get(base_url, headers=headers)
+            results["steps"].append({
+                "step": "quick_check",
+                "status": resp.status_code,
+                "len": len(resp.text),
+                "time": round(time.time() - t0, 1),
+            })
+        except Exception as e:
+            results["steps"].append({"step": "quick_check", "error": str(e)[:100]})
+            return results
+
+        # Step 2: RSS
+        for rss_path in ["/rss", "/feed", "/rss.xml"]:
+            t0 = time.time()
+            try:
+                resp = await c.get(base_url + rss_path, headers=headers)
+                has_rss = "<rss" in resp.text.lower() or "<feed" in resp.text.lower() or "<item>" in resp.text or "<entry>" in resp.text
+                results["steps"].append({
+                    "step": f"RSS {rss_path}",
+                    "status": resp.status_code,
+                    "len": len(resp.text),
+                    "has_rss": has_rss,
+                    "time": round(time.time() - t0, 1),
+                })
+            except Exception as e:
+                results["steps"].append({"step": f"RSS {rss_path}", "error": str(e)[:100]})
+
+        # Step 3: Category scan
+        drug_kw = ["мансууруулах","наркотик","хар тамхи","фентанил","психотроп","мансуур",
+                   "хууль бус","баривчилгаа","хураан авах","гааль"]
+        for cat_id in [36, 6]:
+            t0 = time.time()
+            try:
+                resp = await c.get(f"{base_url}/mn/more/{cat_id}", headers=headers)
+                ids = list(dict.fromkeys(re.findall(r'/read/(\d+)', resp.text)))
+                results["steps"].append({
+                    "step": f"Category {cat_id}",
+                    "status": resp.status_code,
+                    "article_ids": len(ids),
+                    "time": round(time.time() - t0, 1),
+                })
+
+                # Check first 3 articles
+                hits = []
+                for aid in ids[:3]:
+                    try:
+                        aresp = await c.get(f"{base_url}/mn/read/{aid}", headers=headers)
+                        tm = re.search(r'<title>(.*?)</title>', aresp.text, re.DOTALL)
+                        title = tm.group(1).strip() if tm else ""
+                        title = re.sub(r'<[^>]+>', '', title)
+                        is_hit = any(kw in title.lower() for kw in drug_kw)
+                        hits.append({"id": aid, "title": title[:80], "drug_hit": is_hit})
+                    except Exception as e:
+                        hits.append({"id": aid, "error": str(e)[:80]})
+                results["steps"][-1]["sample_titles"] = hits
+            except Exception as e:
+                results["steps"].append({"step": f"Category {cat_id}", "error": str(e)[:100]})
+
+        # Step 4: ID sampling
+        t0 = time.time()
+        try:
+            resp = await c.get(f"{base_url}/mn/", headers=headers)
+            ids = re.findall(r'/read/(\d+)', resp.text)
+            max_id = max(int(i) for i in ids) if ids else 0
+            results["steps"].append({
+                "step": "ID sampling",
+                "total_ids": len(ids),
+                "max_id": max_id,
+                "range": f"{max(0, max_id-6000)}-{max_id}",
+                "time": round(time.time() - t0, 1),
+            })
+
+            # Check 5 random IDs for drug keywords
+            import random
+            sample_ids = random.sample(ids, min(5, len(ids)))
+            sample_results = []
+            for aid in sample_ids:
+                try:
+                    aresp = await c.get(f"{base_url}/mn/read/{aid}", headers=headers)
+                    tm = re.search(r'<title>(.*?)</title>', aresp.text, re.DOTALL)
+                    title = tm.group(1).strip() if tm else ""
+                    title = re.sub(r'<[^>]+>', '', title)
+                    is_hit = any(kw in title.lower() for kw in drug_kw)
+                    sample_results.append({"id": aid, "title": title[:80], "drug_hit": is_hit})
+                except Exception as e:
+                    sample_results.append({"id": aid, "error": str(e)[:80]})
+            results["steps"][-1]["samples"] = sample_results
+        except Exception as e:
+            results["steps"].append({"step": "ID sampling", "error": str(e)[:100]})
+
+    return results
+
+
 # ============================================================
 # 启动入口
 # ============================================================
