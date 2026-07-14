@@ -275,7 +275,8 @@ app.post("/api/search", async (req, res) => {
         const existingUrls = new Set(results.map((r: any) => r.url));
         const uniqueLive = enriched
           .map((art: any, i: number) => ({
-            ...art,
+            ...scraped[i],            // original fields: siteName, siteUrl, url, date, originalTitle
+            ...art,                   // AI enrichment: title, category, summary, entities, details
             id: art.id || `live-${Date.now()}-${i}`,
             riskLevel: ["High", "Medium", "Low"].includes(art.riskLevel) ? art.riskLevel : "Medium",
           }))
