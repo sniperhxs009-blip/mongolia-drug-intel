@@ -999,3 +999,89 @@ class CrawlCoordinator:
         )
         await coordinator.crawl_all_streaming()
         return results
+
+
+# ============================================================
+# 批量站点爬取（适配 Vercel 10s 超时）
+# ============================================================
+
+async def crawl_sites_batch(site_names: list[str]) -> list[dict]:
+    """爬取指定站点列表，返回情报文章列表。适配 Vercel 10s 超时。"""
+    from modules.parser import parse_article_html
+    from modules.filter_module import strict_filter
+
+    all_sites = get_all_sites()
+    sites_to_crawl = [s for s in all_sites if s["name"] in site_names]
+    if not sites_to_crawl:
+        return []
+
+    drug_kw = _get_drug_keywords()
+    sem = asyncio.Semaphore(15)
+    articles: list[dict] = []
+    seen: set[str] = set()
+    lock = asyncio.Lock()
+
+    async def _crawl_one(site: dict):
+        site_url = site.get("url", "").rstrip("/")
+        domain = urlparse(site_url).netloc
+        site_name = site["name"]
+        found_links = []
+
+        try:
+            async with httpx.AsyncClient(timeout=4, follow_redirects=True) as client:
+                # 优先 RSS
+                for rss_path in RSS_PATHS:
+                    if len(found_links) >= 3:
+                        break
+                    try:
+                        resp = await client.get(site_url + rss_path, headers={
+                            "User-Agent": get_random_ua(),
+                            "Accept": "text/xml,application/xml,*/*",
+                        })
+                        if resp.status_code == 200 and len(resp.text) > 200:
+                            links = _extract_rss_links_with_filter(resp.text, site_url, drug_kw)
+                            for l in links:
+                                if l not in found_links:
+                                    found_links.append(l)
+                    except Exception:
+                        continue
+
+                # 兜底：首页提取
+                if len(found_links) < 2:
+                    try:
+                        resp = await client.get(site_url, headers={
+                            "User-Agent": get_random_ua(), "Accept": "text/html",
+                        })
+                        if resp.status_code == 200:
+                            links = extract_article_links(resp.text, site_url, domain)
+                            for l in links[:3]:
+                                if l not in found_links:
+                                    found_links.append(l)
+                    except Exception:
+                        pass
+
+                # 抓取文章详情
+                for link in found_links[:5]:
+                    async with sem:
+                        try:
+                            resp = await client.get(link, headers={
+                                "User-Agent": get_random_ua(), "Accept": "text/html",
+                            })
+                            if resp.status_code == 200 and resp.text:
+                                parsed = parse_article_html(resp.text, link, site)
+                                if parsed and strict_filter(parsed):
+                                    async with lock:
+                                        url = parsed.get("source_url", "")
+                                        if url and url not in seen:
+                                            seen.add(url)
+                                            parsed["site_category"] = site_name
+                                            articles.append(parsed)
+                        except Exception:
+                            continue
+        except Exception:
+            pass
+
+    tasks = [asyncio.create_task(_crawl_one(s)) for s in sites_to_crawl]
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+    return articles

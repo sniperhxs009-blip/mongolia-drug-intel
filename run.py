@@ -308,6 +308,45 @@ async def api_crawl_stop(request: Request):
     return {"status": "ok", "message": "采集已停止"}
 
 
+@app.get("/api/sites")
+async def api_get_sites():
+    """返回所有站点名称列表，供前端分批爬取"""
+    from modules.searcher import get_all_sites
+    sites = get_all_sites()
+    return [{"name": s["name"], "url": s.get("url", ""), "language": s.get("language", "mn")} for s in sites]
+
+
+@app.post("/api/crawl/sites")
+async def api_crawl_sites(request: Request):
+    """批量爬取指定站点（适配 Vercel 10s 超时），返回 JSON"""
+    _verify_token(request)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="请求体需为 JSON")
+    site_names = body.get("sites", [])
+    if not site_names:
+        raise HTTPException(status_code=400, detail="请提供站点名称列表")
+    from modules.searcher import crawl_sites_batch
+    articles = await crawl_sites_batch(site_names)
+    # 写入存储
+    for a in articles:
+        append_single_intel(a)
+    return {"total": len(articles), "articles": articles}
+
+
+@app.get("/api/crawl/rss")
+async def api_crawl_rss(request: Request):
+    """RSS 搜索引擎检索（适配 Vercel 10s 超时），返回 JSON"""
+    _verify_token(request)
+    from modules.search_engines import search_all_articles
+    articles = await search_all_articles()
+    # 写入存储
+    for a in articles:
+        append_single_intel(a)
+    return {"total": len(articles), "articles": articles}
+
+
 @app.post("/api/deepseek/search")
 async def api_deepseek_search(request: Request):
     """
