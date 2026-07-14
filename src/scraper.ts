@@ -402,8 +402,53 @@ async function fetchAllRSS(): Promise<SerperResult[]> {
   return allResults;
 }
 
-// ── Fetch article page content for better keyword extraction ────────────────
-async function fetchArticleContent(url: string): Promise<string> {
+// ── Fetch article page content + publication date ───────────────────────────
+interface ArticlePage {
+  content: string;
+  date: string; // YYYY-MM-DD or empty
+}
+
+function extractDateFromHTML(html: string): string {
+  // <meta property="article:published_time" content="2026-07-14T10:30:00+08:00">
+  const metaMatch = html.match(/<meta\s[^>]*property="article:published_time"[^>]*content="([^"]+)"/i)
+    || html.match(/<meta\s[^>]*name="pubdate"[^>]*content="([^"]+)"/i)
+    || html.match(/<meta\s[^>]*name="publish_date"[^>]*content="([^"]+)"/i);
+  if (metaMatch) {
+    try {
+      return new Date(metaMatch[1]).toISOString().split("T")[0];
+    } catch { /* fall through */ }
+  }
+
+  // <time datetime="2026-07-14">...</time>
+  const timeMatch = html.match(/<time[^>]*datetime="([^"]+)"/i);
+  if (timeMatch) {
+    try {
+      return new Date(timeMatch[1]).toISOString().split("T")[0];
+    } catch { /* fall through */ }
+  }
+
+  // Schema.org JSON-LD datePublished
+  const jsonLdMatch = html.match(/"datePublished"\s*:\s*"([^"]+)"/);
+  if (jsonLdMatch) {
+    try {
+      return new Date(jsonLdMatch[1]).toISOString().split("T")[0];
+    } catch { /* fall through */ }
+  }
+
+  // Common Mongolian date patterns in visible text: 2026-07-14, 2026.07.14, 2026/07/14
+  const dateRegex = /(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/;
+  const dateMatch = html.match(dateRegex);
+  if (dateMatch) {
+    try {
+      const d = new Date(`${dateMatch[1]}-${dateMatch[2].padStart(2, "0")}-${dateMatch[3].padStart(2, "0")}`);
+      if (!isNaN(d.getTime())) return d.toISOString().split("T")[0];
+    } catch { /* fall through */ }
+  }
+
+  return "";
+}
+
+async function fetchArticlePage(url: string): Promise<ArticlePage> {
   try {
     const resp = await axios.get(url, {
       headers: {
@@ -415,8 +460,12 @@ async function fetchArticleContent(url: string): Promise<string> {
       maxRedirects: 3,
       validateStatus: (s) => s < 400,
     });
-    // Extract text content with basic regex — lightweight, no cheerio needed
     const html: string = resp.data;
+
+    // Extract date
+    const date = extractDateFromHTML(html);
+
+    // Extract text content
     const bodyText = html
       .replace(/<script[\s\S]*?<\/script>/gi, "")
       .replace(/<style[\s\S]*?<\/style>/gi, "")
@@ -428,9 +477,10 @@ async function fetchArticleContent(url: string): Promise<string> {
       .replace(/\s+/g, " ")
       .trim()
       .substring(0, 3000);
-    return bodyText;
+
+    return { content: bodyText, date };
   } catch {
-    return "";
+    return { content: "", date: "" };
   }
 }
 
@@ -462,28 +512,31 @@ export async function scrapeAllSites(): Promise<ScrapedArticle[]> {
     return [];
   }
 
-  console.log(`[Scraper] Total unique articles: ${allRaw.length}. Fetching content...`);
+  console.log(`[Scraper] Total unique articles: ${allRaw.length}. Fetching content + dates...`);
 
-  // Fetch full content for top articles (limit to avoid excessive requests)
+  // Fetch full content + real publication dates for top articles
   const topResults = allRaw.slice(0, 30);
-  const contents = await Promise.allSettled(
-    topResults.map((r) => fetchArticleContent(r.link))
+  const pageResults = await Promise.allSettled(
+    topResults.map((r) => fetchArticlePage(r.link))
   );
 
   const articles: ScrapedArticle[] = [];
   for (let i = 0; i < topResults.length; i++) {
     const r = topResults[i];
-    const c = contents[i];
-    const content = c.status === "fulfilled" ? (c as PromiseFulfilledResult<string>).value : "";
-    const fullText = `${r.title} ${r.snippet} ${content}`;
+    const pr = pageResults[i];
+    const page = pr.status === "fulfilled" ? (pr as PromiseFulfilledResult<ArticlePage>).value : { content: "", date: "" };
+    const fullText = `${r.title} ${r.snippet} ${page.content}`;
     const domain = extractDomain(r.link);
     const matched = extractMatchedKeywords(fullText);
+
+    // Priority: page-extracted date > Serper/RSS date > today
+    const finalDate = page.date || r.date || new Date().toISOString().split("T")[0];
 
     articles.push({
       title: r.title,
       originalTitle: r.title,
       url: r.link,
-      date: r.date || new Date().toISOString().split("T")[0],
+      date: finalDate,
       siteName: domain || "Unknown",
       siteUrl: domain,
       summary: r.snippet.substring(0, 500),
