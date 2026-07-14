@@ -355,9 +355,10 @@ async function searchWithScrapingbee(): Promise<SerperResult[]> {
 // ── Direct site search (free, no API key) ───────────────────────────────────
 interface SiteSearchConfig {
   name: string;
-  searchUrl: string;          // e.g. "https://ikon.mn/search?q="
-  linkPattern: RegExp;        // extract article URLs from search results
-  linkPrefix: string;         // e.g. "https://ikon.mn"
+  searchUrl: string;
+  linkPattern: RegExp;
+  linkPrefix: string;
+  linkFilter?: (href: string) => boolean;
 }
 
 const SITE_SEARCH_CONFIGS: SiteSearchConfig[] = [
@@ -376,8 +377,9 @@ const SITE_SEARCH_CONFIGS: SiteSearchConfig[] = [
   {
     name: "gogo.mn",
     searchUrl: "https://gogo.mn/search?q=",
-    linkPattern: /href="(\/r\/[^"?]+)/g,
+    linkPattern: /<a[^>]*href="(\/[^"]+)"[^>]*>/gi,
     linkPrefix: "https://gogo.mn",
+    linkFilter: (href: string) => href.length > 4 && !href.includes("?"),
   },
 ];
 
@@ -403,19 +405,25 @@ async function searchSiteDirectly(config: SiteSearchConfig, query: string): Prom
     while ((match = config.linkPattern.exec(html)) !== null) {
       const href = match[1];
       if (seen.has(href)) continue;
+      if (config.linkFilter && !config.linkFilter(href)) continue;
       seen.add(href);
 
       const fullUrl = href.startsWith("http") ? href : config.linkPrefix + href;
 
-      // Try to extract title near the link
-      const escapedHref = href.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const titleRx = new RegExp(`${escapedHref}[^>]*>([^<]{10,200})<`, "s");
-      const titleMatch = html.match(titleRx);
-      const title = titleMatch ? titleMatch[1].trim() : href;
+      // Extract surrounding text context (~300 chars around the link) as snippet
+      const matchIdx = match.index;
+      const contextStart = Math.max(0, matchIdx - 150);
+      const contextEnd = Math.min(html.length, matchIdx + 400);
+      const context = html.substring(contextStart, contextEnd)
+        .replace(/<[^>]*>/g, " ")
+        .replace(/&[a-z]+;/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .substring(0, 300);
 
-      if (!hasDrugKeyword(title)) continue;
-
-      results.push({ title, link: fullUrl, snippet: "", date: "" });
+      // Use context as title/snippet — no drug keyword filter here,
+      // the search query already contains drug keywords
+      results.push({ title: context.substring(0, 150), link: fullUrl, snippet: context, date: "" });
     }
 
     return results;
