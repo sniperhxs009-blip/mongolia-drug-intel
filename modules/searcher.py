@@ -511,7 +511,7 @@ class StreamingCrawlCoordinator:
                     resp = await client.get(f"{base_url}/mn/more/{cat_id}", headers=headers)
                     if resp.status_code != 200:
                         return
-                    article_ids = list(dict.fromkeys(re.findall(r'/read/(\d+)', resp.text)))[:50]
+                    article_ids = list(dict.fromkeys(re.findall(r'/read/(\d+)', resp.text)))[:100]
                     batch_size = 10
                     for i in range(0, len(article_ids), batch_size):
                         if self.cancel_event.is_set() or len(discovered) >= 3:
