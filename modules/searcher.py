@@ -826,12 +826,11 @@ class StreamingCrawlCoordinator:
                         "type":"batch_start","batch":batch_num,"total_batches":total_batches,
                         "sites":[s["name"] for s in batch]
                     }))
-                    futures = {asyncio.ensure_future(self._crawl_site(s)): s for s in batch}
-                    for coro in asyncio.as_completed(list(futures.keys())):
-                        site = futures[coro]
-                        try:
-                            result = await coro
-                        except Exception:
+                    tasks = [asyncio.ensure_future(self._crawl_site(s)) for s in batch]
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    for site, result in zip(batch, results):
+                        if isinstance(result, BaseException):
+                            log.error("%s 采集异常: %s", site.get("name","?"), result, exc_info=result if not isinstance(result, KeyboardInterrupt) else False)
                             result = []
                         if isinstance(result, tuple) and len(result) == 2:
                             result_articles, rejected = result
