@@ -711,8 +711,8 @@ export async function scrapeAllSites(): Promise<ScrapedArticle[]> {
     const r = topResults[i];
     const pr = pageResults[i];
     const page = pr.status === "fulfilled" ? (pr as PromiseFulfilledResult<ArticlePage>).value : { content: "", date: "" };
-    // Skip articles whose pages couldn't be fetched (404, timeout, etc.)
-    if (!page.content && !r.snippet) continue;
+    // Skip articles whose pages couldn't be fetched (404, timeout, blocked, etc.)
+    if (!page.content || page.content.length < 100) continue;
     const fullText = `${r.title} ${r.snippet} ${page.content}`;
     const domain = extractDomain(r.link);
     const matched = extractMatchedKeywords(fullText);
