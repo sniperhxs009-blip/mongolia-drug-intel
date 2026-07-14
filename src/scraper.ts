@@ -243,7 +243,7 @@ async function searchWithSerper(): Promise<SerperResult[]> {
     try {
       const resp = await axios.post(
         "https://google.serper.dev/news",
-        { q, num: 25, gl: "mn", hl: q.match(/[Ѐ-ӿ]/) ? "mn" : q.match(/[一-鿿]/) ? "zh-cn" : "en" },
+        { q, num: 25, gl: "mn", hl: q.match(/[Ѐ-ӿ]/) ? "mn" : q.match(/[一-鿿]/) ? "zh-cn" : "en", tbs: "qdr:m" },
         { headers: { "X-API-KEY": apiKey, "Content-Type": "application/json" }, timeout: 15000 }
       );
 
@@ -271,7 +271,7 @@ async function searchWithSerper(): Promise<SerperResult[]> {
     try {
       const resp = await axios.post(
         "https://google.serper.dev/search",
-        { q: query.q, num: 25, gl: query.gl, hl: query.hl },
+        { q: query.q, num: 25, gl: query.gl, hl: query.hl, tbs: "qdr:m" },
         {
           headers: {
             "X-API-KEY": apiKey,
@@ -711,6 +711,8 @@ export async function scrapeAllSites(): Promise<ScrapedArticle[]> {
     const r = topResults[i];
     const pr = pageResults[i];
     const page = pr.status === "fulfilled" ? (pr as PromiseFulfilledResult<ArticlePage>).value : { content: "", date: "" };
+    // Skip articles whose pages couldn't be fetched (404, timeout, etc.)
+    if (!page.content && !r.snippet) continue;
     const fullText = `${r.title} ${r.snippet} ${page.content}`;
     const domain = extractDomain(r.link);
     const matched = extractMatchedKeywords(fullText);
