@@ -184,59 +184,34 @@ async function searchWithSerper(): Promise<SerperResult[]> {
 
   const queries: { q: string; gl: string; hl: string }[] = [];
 
-  // ── English broad searches ──
-  queries.push({ q: "Mongolia drug trafficking arrest seizure customs", gl: "mn", hl: "en" });
-  queries.push({ q: "Mongolia narcotics smuggling bust meth fentanyl", gl: "mn", hl: "en" });
-  queries.push({ q: "Mongolia synthetic drugs precursor chemicals", gl: "mn", hl: "en" });
-  queries.push({ q: "Mongolia cannabis marijuana cultivation eradication", gl: "mn", hl: "en" });
-  queries.push({ q: "Mongolia drug cartel organized crime heroin cocaine", gl: "mn", hl: "en" });
-  queries.push({ q: "Mongolia UNODC INCB drug report narcotic control", gl: "mn", hl: "en" });
-  queries.push({ q: "Mongolia cross-border drug smuggling China Russia Kazakhstan", gl: "mn", hl: "en" });
-  queries.push({ q: "Mongolia opioid crisis substance abuse addiction treatment", gl: "mn", hl: "en" });
-  queries.push({ q: "Mongolia CNB caffeine sodium benzoate drug", gl: "mn", hl: "en" });
-  queries.push({ q: "Mongolia psychotropic substance control law enforcement", gl: "mn", hl: "en" });
+  // ── English news-focused searches ──
+  queries.push({ q: "Mongolia drug trafficking arrest seizure customs 2025 2026", gl: "mn", hl: "en" });
+  queries.push({ q: "Mongolia narcotics smuggling bust meth fentanyl 2025 2026", gl: "mn", hl: "en" });
+  queries.push({ q: "Mongolia cross-border drug smuggling China Russia", gl: "mn", hl: "en" });
 
-  // ── Chinese cross-border searches ──
-  queries.push({ q: "蒙古国 毒品 贩毒 走私 缉毒 禁毒 缴获", gl: "cn", hl: "zh-cn" });
-  queries.push({ q: "中蒙 口岸 查获 毒品 安纳咖 冰毒 海洛因", gl: "cn", hl: "zh-cn" });
-  queries.push({ q: "蒙古 跨境 贩毒 海关 边防 苯甲酸钠 咖啡因", gl: "cn", hl: "zh-cn" });
-  queries.push({ q: "内蒙古 二连浩特 满洲里 口岸 蒙古 走私毒品", gl: "cn", hl: "zh-cn" });
-  queries.push({ q: "中蒙边境 缉毒 边防检查 吸毒 戒毒 康复", gl: "cn", hl: "zh-cn" });
-  queries.push({ q: "蒙古国 禁毒 国际合作 UNODC 毒品犯罪", gl: "cn", hl: "zh-cn" });
-  queries.push({ q: "外蒙古 毒品泛滥 新型毒品 合成毒品 大麻", gl: "cn", hl: "zh-cn" });
-  queries.push({ q: "甘其毛都 策克 口岸 蒙古 查获 走私 毒品", gl: "cn", hl: "zh-cn" });
+  // ── Chinese cross-border news ──
+  queries.push({ q: "蒙古国 毒品 贩毒 走私 缉毒 查获 缴获", gl: "cn", hl: "zh-cn" });
+  queries.push({ q: "中蒙 口岸 查获 毒品 安纳咖 冰毒", gl: "cn", hl: "zh-cn" });
+  queries.push({ q: "蒙古 跨境 贩毒 海关 边防 走私毒品", gl: "cn", hl: "zh-cn" });
+  queries.push({ q: "二连浩特 满洲里 口岸 蒙古 走私毒品 查获", gl: "cn", hl: "zh-cn" });
 
-  // ── Site-specific .mn news sites ──
-  for (const site of ["montsame.mn", "news.mn", "gogo.mn", "ikon.mn", "unuudur.mn", "24tsag.mn"]) {
+  // ── Site-specific Mongolian news domains ──
+  for (const site of ["montsame.mn", "news.mn", "gogo.mn", "ikon.mn", "unuudur.mn"]) {
     queries.push({ q: `site:${site} drug OR narcotic OR trafficking OR cannabis OR meth OR fentanyl OR heroin OR cocaine OR seizure OR arrest OR smuggling`, gl: "mn", hl: "en" });
   }
 
-  // ── Government / official sites ──
-  queries.push({ q: "site:customs.gov.mn drug OR narcotic OR seizure OR smuggling OR trafficking", gl: "mn", hl: "en" });
-  queries.push({ q: "site:police.gov.mn drug OR narcotic OR arrest OR crime", gl: "mn", hl: "en" });
-
-  // ── International orgs ──
-  queries.push({ q: "site:unodc.org Mongolia drug narcotic trafficking heroin methamphetamine", gl: "mn", hl: "en" });
-  queries.push({ q: "site:interpol.int Mongolia drug", gl: "mn", hl: "en" });
-  queries.push({ q: "site:incb.org Mongolia narcotic drug", gl: "mn", hl: "en" });
-  queries.push({ q: "site:thediplomat.com Mongolia drug narcotic crime smuggling", gl: "mn", hl: "en" });
-  queries.push({ q: "site:state.gov Mongolia narcotics trafficking", gl: "mn", hl: "en" });
-  queries.push({ q: "site:ocindex.net Mongolia", gl: "mn", hl: "en" });
+  // ── Key international news sources ──
+  queries.push({ q: "site:thediplomat.com Mongolia drug narcotic crime", gl: "mn", hl: "en" });
   queries.push({ q: "site:eurasianet.org Mongolia drug narcotic", gl: "mn", hl: "en" });
-  queries.push({ q: "site:jamestown.org Mongolia drug trafficking", gl: "mn", hl: "en" });
+  queries.push({ q: "site:xinhuanet.com Mongolia drug trafficking narcotics", gl: "mn", hl: "en" });
 
-  // ── Academic / research sources ──
-  queries.push({ q: "Mongolia drug trafficking research study academic 2024 2025 2026", gl: "mn", hl: "en" });
-
-  // ── Google News search (recent articles, better for news sites) ──
+  // ── Google News search (recent articles) ──
   const newsQueries = [
-    "Mongolia drug trafficking narcotics",
-    "Mongolia drug arrest seizure customs",
-    "Mongolia methamphetamine fentanyl bust",
-    "Mongolia cannabis marijuana smuggling",
-    "Монгол хар тамхи мансууруулах",
-    "Монгол наркотик психотроп",
-    "蒙古 毒品 贩毒 查获",
+    "Mongolia drug trafficking narcotics arrest",
+    "Mongolia methamphetamine fentanyl seizure customs",
+    "Mongolia cannabis marijuana smuggling bust",
+    "Монгол хар тамхи мансууруулах наркотик",
+    "蒙古 毒品 贩毒 查获 走私",
   ];
 
   for (const q of newsQueries) {
