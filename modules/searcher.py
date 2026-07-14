@@ -334,8 +334,13 @@ class StreamingCrawlCoordinator:
         self.checkpoint = CrawlCheckpoint()
         self.on_article = on_article
         self.on_progress = on_progress
-        self.timeout = 4
-        self.semaphore = asyncio.Semaphore(20)
+        self.timeout = 8
+        self.semaphore = asyncio.Semaphore(30)
+        # 域名级别并发控制：montsame.mn 等站点有反爬，限制并发
+        self._domain_semaphores = {
+            "montsame.mn": asyncio.Semaphore(10),
+            "see.mn": asyncio.Semaphore(10),
+        }
         self.cancel_event = asyncio.Event()
         # 阶梯反爬：记录每个域名的连续失败次数，用于增加延迟
         self._domain_fail_count: dict[str, int] = {}
@@ -350,8 +355,8 @@ class StreamingCrawlCoordinator:
         if self.on_article:
             await self.on_article(item)
 
-    async def _http_get(self, client: httpx.AsyncClient, url: str, max_retries: int = 1) -> Optional[str]:
-        """执行 HTTP GET 请求，带指数退避重试"""
+    async def _http_get(self, client: httpx.AsyncClient, url: str, max_retries: int = 2) -> Optional[str]:
+        """执行 HTTP GET 请求，带指数退避重试。403 也重试（应对速率限制）"""
         parsed = urlparse(url)
         domain = parsed.netloc
         headers = {
@@ -367,13 +372,13 @@ class StreamingCrawlCoordinator:
                 if resp.status_code == 200 and resp.text and len(resp.text) > 300:
                     self._domain_fail_count[domain] = 0
                     return resp.text
-                if resp.status_code in (429, 503):
-                    wait = 2 ** attempt
-                    log.debug("HTTP %d on %s, retry in %ds", resp.status_code, url[:80], wait)
+                if resp.status_code in (429, 503, 403):
+                    wait = 2 ** attempt + random.uniform(0, 1)
+                    log.debug("HTTP %d on %s, retry %d in %.1fs", resp.status_code, url[:80], attempt+1, wait)
                     await asyncio.sleep(wait)
                     continue
-                if resp.status_code in (403, 404):
-                    break  # 不重试 403/404
+                if resp.status_code in (404,):
+                    break  # 404 不重试
             except Exception:
                 wait = 2 ** attempt
                 await asyncio.sleep(wait)
@@ -485,55 +490,95 @@ class StreamingCrawlCoordinator:
         return False
 
     async def _sample_montsame_ids(self, client: httpx.AsyncClient, base_url: str, drug_keywords: list[str]) -> list[str]:
-        """montsame.mn 专用：随机采样文章 ID 发现涉毒文章。
-        从首页获取最新 ID，在 6000 个 ID 范围内随机选 600 个，覆盖约 90 天。
-        并行批量请求，发现 8 篇即停止。
+        """montsame.mn 专用：优先用法律/社会分类页发现涉毒文章，分类不足时回退 ID 采样。
+        分类页每个有 ~120 篇文章 ID，标题命中率远高于随机采样。
         """
         discovered = []
         try:
-            html = await self._http_get(client, base_url + "/mn/")
-            if not html:
-                await self._progress(json.dumps({"type":"site_detail","site":"蒙通社MONTSAME","msg":"montsame首页获取失败，跳过ID采样"}))
-                return discovered
-            ids = re.findall(r'/read/(\d+)', html)
-            if not ids:
-                await self._progress(json.dumps({"type":"site_detail","site":"蒙通社MONTSAME","msg":"montsame首页无ID，跳过采样"}))
-                return discovered
-            max_id = max(int(i) for i in ids)
-            min_id = max(0, max_id - 6000)
-            await self._progress(json.dumps({"type":"site_detail","site":"蒙通社MONTSAME","msg":f"montsame随机采样: {min_id}-{max_id}, 600个ID"}))
-            log.info("montsame.mn 随机采样: 最新ID=%d, 范围 %d-%d, 采样600", max_id, min_id, max_id)
+            # 策略1: 分类页面扫描（法律=36 最相关，社会=6）
+            category_ids = [36, 6]
+            headers = {
+                "User-Agent": get_random_ua(),
+                "Accept": "text/html",
+            }
 
-            # 随机采样 600 个 ID（比固定步长覆盖更均匀）
-            sample_ids = random.sample(range(min_id, max_id + 1), min(600, max_id - min_id + 1))
-            candidates = []
-            for article_id in sample_ids:
-                for lang_path in ["/mn/read/", "/en/read/"]:
-                    candidates.append(f"{base_url}{lang_path}{article_id}")
+            montsame_sem = self._domain_semaphores.get("montsame.mn", self.semaphore)
 
-            async def _check_one(url: str):
-                if self.cancel_event.is_set() or len(discovered) >= 8:
+            async def _check_category(cat_id: int):
+                if self.cancel_event.is_set() or len(discovered) >= 3:
                     return
-                async with self.semaphore:
-                    html_text = await self._http_get(client, url)
-                if html_text and len(discovered) < 8:
-                    snippet = html_text[:2000]
-                    title_match = re.search(r'<title>(.*?)</title>', snippet, re.DOTALL)
-                    title = title_match.group(1).strip() if title_match else ""
-                    title = re.sub(r'<[^>]+>', '', title)
-                    if any(kw.lower() in title.lower() for kw in drug_keywords):
-                        log.info("montsame.mn 采样命中: %s — %s", url.rsplit("/", 1)[-1], title[:60])
-                        await self._progress(json.dumps({"type":"sampling_hit","site":"蒙通社MONTSAME","url":url,"title":title[:60]}))
-                        discovered.append(url)
+                try:
+                    resp = await client.get(f"{base_url}/mn/more/{cat_id}", headers=headers)
+                    if resp.status_code != 200:
+                        return
+                    article_ids = list(dict.fromkeys(re.findall(r'/read/(\d+)', resp.text)))[:25]
+                    batch_size = 10
+                    for i in range(0, len(article_ids), batch_size):
+                        if self.cancel_event.is_set() or len(discovered) >= 3:
+                            return
+                        batch = article_ids[i:i + batch_size]
+                        async def _check_one(aid: str):
+                            if self.cancel_event.is_set() or len(discovered) >= 3:
+                                return
+                            url = f"{base_url}/mn/read/{aid}"
+                            async with montsame_sem:
+                                html_text = await self._http_get(client, url)
+                            if html_text:
+                                snippet = html_text[:2000]
+                                title_match = re.search(r'<title>(.*?)</title>', snippet, re.DOTALL)
+                                title = title_match.group(1).strip() if title_match else ""
+                                title = re.sub(r'<[^>]+>', '', title)
+                                if any(kw.lower() in title.lower() for kw in drug_keywords):
+                                    log.info("montsame.mn 分类%d命中: ID=%s — %s", cat_id, aid, title[:60])
+                                    await self._progress(json.dumps({"type":"sampling_hit","site":"蒙通社MONTSAME","url":url,"title":title[:60]}))
+                                    discovered.append(url)
+                        await asyncio.gather(*[_check_one(aid) for aid in batch], return_exceptions=True)
+                        if i + batch_size < len(article_ids):
+                            await asyncio.sleep(0.03)
+                except Exception as e:
+                    log.debug("montsame 分类%d 异常: %s", cat_id, e)
 
-            batch_size = 15
-            for i in range(0, len(candidates), batch_size):
-                if self.cancel_event.is_set() or len(discovered) >= 8:
-                    break
-                batch = candidates[i:i + batch_size]
-                await asyncio.gather(*[_check_one(u) for u in batch], return_exceptions=True)
-                if i + batch_size < len(candidates):
-                    await asyncio.sleep(0.02)
+            await self._progress(json.dumps({"type":"site_detail","site":"蒙通社MONTSAME","msg":f"分类扫描: 法律+社会"}))
+            await asyncio.gather(*[_check_category(cid) for cid in category_ids], return_exceptions=True)
+
+            # 策略2: 分类无结果时回退随机 ID 采样（有 1 篇就不回退，省时间做 Phase 2）
+            if len(discovered) == 0:
+                html = await self._http_get(client, base_url + "/mn/")
+                if html:
+                    ids = re.findall(r'/read/(\d+)', html)
+                    if ids:
+                        max_id = max(int(i) for i in ids)
+                        min_id = max(0, max_id - 6000)
+                        sample_size = min(100, max_id - min_id + 1)
+                        sample_ids = random.sample(range(min_id, max_id + 1), sample_size)
+                        await self._progress(json.dumps({"type":"site_detail","site":"蒙通社MONTSAME","msg":f"ID采样: {min_id}-{max_id}, {sample_size}个"}))
+                        log.info("montsame ID采样: %d个, 范围 %d-%d", sample_size, min_id, max_id)
+
+                        candidates = [f"{base_url}/mn/read/{aid}" for aid in sample_ids]
+
+                        async def _check_sample(url: str):
+                            if self.cancel_event.is_set() or len(discovered) >= 3:
+                                return
+                            async with montsame_sem:
+                                html_text = await self._http_get(client, url)
+                            if html_text and len(discovered) < 3:
+                                snippet = html_text[:2000]
+                                title_match = re.search(r'<title>(.*?)</title>', snippet, re.DOTALL)
+                                title = title_match.group(1).strip() if title_match else ""
+                                title = re.sub(r'<[^>]+>', '', title)
+                                if any(kw.lower() in title.lower() for kw in drug_keywords):
+                                    log.info("montsame ID采样命中: %s — %s", url.rsplit("/", 1)[-1], title[:60])
+                                    await self._progress(json.dumps({"type":"sampling_hit","site":"蒙通社MONTSAME","url":url,"title":title[:60]}))
+                                    discovered.append(url)
+
+                        batch_size = 20
+                        for i in range(0, len(candidates), batch_size):
+                            if self.cancel_event.is_set() or len(discovered) >= 3:
+                                break
+                            batch = candidates[i:i + batch_size]
+                            await asyncio.gather(*[_check_sample(u) for u in batch], return_exceptions=True)
+                            if i + batch_size < len(candidates):
+                                await asyncio.sleep(0.02)
 
         except Exception as e:
             log.warning("montsame.mn 采样异常: %s", e)
@@ -541,32 +586,36 @@ class StreamingCrawlCoordinator:
 
     async def _sample_see_ids(self, client: httpx.AsyncClient, base_url: str, drug_keywords: list[str]) -> list[str]:
         """see.mn 专用：随机采样文章 ID。URL 格式 see.mn/{id}.html。
-        从首页获取最新 ID，在 6000 个 ID 范围内随机选 600 个，覆盖约 90 天。
+        从首页获取最新 ID，在 6000 个 ID 范围内随机选 200 个，覆盖约 90 天。
+        高并发批量请求，发现 5 篇即停止。
         """
         discovered = []
         try:
             html = await self._http_get(client, base_url)
             if not html:
+                log.warning("see.mn 首页获取失败")
                 await self._progress(json.dumps({"type":"site_detail","site":"See.mn","msg":"see.mn首页获取失败，跳过ID采样"}))
                 return discovered
             ids = re.findall(r'/(\d+)\.html', html)
             if not ids:
+                log.warning("see.mn 首页无ID")
                 await self._progress(json.dumps({"type":"site_detail","site":"See.mn","msg":"see.mn首页无ID，跳过采样"}))
                 return discovered
             max_id = max(int(i) for i in ids)
             min_id = max(0, max_id - 6000)
-            await self._progress(json.dumps({"type":"site_detail","site":"See.mn","msg":f"see.mn随机采样: {min_id}-{max_id}, 600个ID"}))
-            log.info("see.mn 随机采样: 最新ID=%d, 范围 %d-%d, 采样600", max_id, min_id, max_id)
+            sample_size = min(200, max_id - min_id + 1)
+            sample_ids = random.sample(range(min_id, max_id + 1), sample_size)
+            await self._progress(json.dumps({"type":"site_detail","site":"See.mn","msg":f"see.mn采样: {min_id}-{max_id}, {sample_size}个ID"}))
+            log.info("see.mn 采样: 最新ID=%d, 范围 %d-%d, 采样%d", max_id, min_id, max_id, sample_size)
 
-            sample_ids = random.sample(range(min_id, max_id + 1), min(600, max_id - min_id + 1))
             candidates = [f"{base_url}/{aid}.html" for aid in sample_ids]
 
             async def _check_one(url: str):
-                if self.cancel_event.is_set() or len(discovered) >= 8:
+                if self.cancel_event.is_set() or len(discovered) >= 5:
                     return
                 async with self.semaphore:
                     html_text = await self._http_get(client, url)
-                if html_text and len(discovered) < 8:
+                if html_text and len(discovered) < 5:
                     snippet = html_text[:2000]
                     title_match = re.search(r'<title>(.*?)</title>', snippet, re.DOTALL)
                     title = title_match.group(1).strip() if title_match else ""
@@ -576,14 +625,14 @@ class StreamingCrawlCoordinator:
                         await self._progress(json.dumps({"type":"sampling_hit","site":"See.mn","url":url,"title":title[:60]}))
                         discovered.append(url)
 
-            batch_size = 15
+            batch_size = 30
             for i in range(0, len(candidates), batch_size):
-                if self.cancel_event.is_set() or len(discovered) >= 8:
+                if self.cancel_event.is_set() or len(discovered) >= 5:
                     break
                 batch = candidates[i:i + batch_size]
                 await asyncio.gather(*[_check_one(u) for u in batch], return_exceptions=True)
                 if i + batch_size < len(candidates):
-                    await asyncio.sleep(0.02)
+                    await asyncio.sleep(0.01)
 
         except Exception as e:
             log.warning("see.mn 采样异常: %s", e)
@@ -614,65 +663,73 @@ class StreamingCrawlCoordinator:
         from modules.filter_module import strict_filter
 
         await self._progress(json.dumps({"type":"site_start","site":site_name}))
+        rejected_count = {"parse_fail": 0, "filter_fail": 0, "http_fail": 0}
 
-        async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True, verify=False) as client:
-            all_links = []
-            links = await self._discover_articles(client, site, keywords)
-            for link in links:
-                if link not in seen_urls:
-                    seen_urls.add(link)
-                    all_links.append(link)
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True, verify=False) as client:
+                all_links = []
+                try:
+                    links = await self._discover_articles(client, site, keywords)
+                except Exception as e:
+                    log.warning("%s 链接发现异常: %s", site_name, e)
+                    await self._progress(json.dumps({"type":"site_detail","site":site_name,"msg":f"发现异常: {str(e)[:80]}"}))
+                    links = []
 
-            await self._progress(json.dumps({"type":"site_discovery","site":site_name,"links":len(all_links)}))
+                for link in links:
+                    if link not in seen_urls:
+                        seen_urls.add(link)
+                        all_links.append(link)
 
-            # Phase 2: 访问每个文章详情页
-            rejected_count = {"parse_fail": 0, "filter_fail": 0, "http_fail": 0}
+                await self._progress(json.dumps({"type":"site_discovery","site":site_name,"links":len(all_links)}))
 
-            async def fetch_article(article_url: str):
-                if len(articles) >= remaining:
-                    return
-                if self.cancel_event.is_set():
-                    return
+                # Phase 2: 访问每个文章详情页
+                async def fetch_article(article_url: str):
+                    if len(articles) >= remaining:
+                        return
+                    if self.cancel_event.is_set():
+                        return
 
-                # 断点续爬：跳过已抓取的 URL
-                if self.checkpoint.is_crawled(article_url):
-                    return
+                    # 断点续爬：跳过已抓取的 URL
+                    if self.checkpoint.is_crawled(article_url):
+                        return
 
-                # 失败重试检查：超过 3 次的直接跳过
-                if not self.checkpoint.can_retry(article_url, max_retries=3):
-                    return
+                    # 失败重试检查：超过 3 次的直接跳过
+                    if not self.checkpoint.can_retry(article_url, max_retries=3):
+                        return
 
-                domain = urlparse(article_url).netloc
-                async with self.semaphore:
-                    delay = self._get_backoff_delay(domain)
-                    await asyncio.sleep(delay)
-                    html = await self._http_get(client, article_url)
+                    domain = urlparse(article_url).netloc
+                    async with self.semaphore:
+                        delay = self._get_backoff_delay(domain)
+                        await asyncio.sleep(delay)
+                        html = await self._http_get(client, article_url)
 
-                if html:
-                    parsed = parse_article_html(html, article_url, site)
-                    if parsed and strict_filter(parsed):
-                        articles.append(parsed)
-                        self.rate_limiter.increment(site_name)
-                        self.checkpoint.mark_crawled(article_url)
-                        await self._article_callback(parsed)
-                    elif parsed:
-                        rejected_count["filter_fail"] += 1
-                        self.checkpoint.mark_crawled(article_url)
+                    if html:
+                        parsed = parse_article_html(html, article_url, site)
+                        if parsed and strict_filter(parsed):
+                            articles.append(parsed)
+                            self.rate_limiter.increment(site_name)
+                            self.checkpoint.mark_crawled(article_url)
+                            await self._article_callback(parsed)
+                        elif parsed:
+                            rejected_count["filter_fail"] += 1
+                            self.checkpoint.mark_crawled(article_url)
+                        else:
+                            rejected_count["parse_fail"] += 1
+                            self.checkpoint.mark_crawled(article_url)
                     else:
-                        rejected_count["parse_fail"] += 1
-                        self.checkpoint.mark_crawled(article_url)
-                else:
-                    rejected_count["http_fail"] += 1
-                    self.checkpoint.mark_failed(article_url)
+                        rejected_count["http_fail"] += 1
+                        self.checkpoint.mark_failed(article_url)
 
-            # 并行抓取文章详情
-            if all_links:
-                # 过滤掉已抓取和失败过多的
-                to_fetch = [l for l in all_links[:min(remaining, 8)]
-                           if not self.checkpoint.is_crawled(l) and self.checkpoint.can_retry(l)]
-                if to_fetch:
-                    tasks = [fetch_article(link) for link in to_fetch]
-                    await asyncio.gather(*tasks, return_exceptions=True)
+                # 并行抓取文章详情
+                if all_links:
+                    to_fetch = [l for l in all_links[:min(remaining, 8)]
+                               if not self.checkpoint.is_crawled(l) and self.checkpoint.can_retry(l)]
+                    if to_fetch:
+                        tasks = [fetch_article(link) for link in to_fetch]
+                        await asyncio.gather(*tasks, return_exceptions=True)
+        except Exception as e:
+            log.error("%s 爬取异常: %s", site_name, e)
+            await self._progress(json.dumps({"type":"site_detail","site":site_name,"msg":f"爬取异常: {str(e)[:80]}"}))
 
         return articles, rejected_count
 
