@@ -153,9 +153,13 @@ function isMongoliaRelevant(url: string, title: string, snippet: string): boolea
       if (host.endsWith("." + sld)) return true;
     }
 
-    // Check international drug org domains
+    // Check international drug org domains — must still mention Mongolia
     for (const d of INTL_DRUG_DOMAINS) {
-      if (host === d || host.endsWith("." + d)) return true;
+      if (host === d || host.endsWith("." + d)) {
+        const combined = `${title} ${snippet}`.toLowerCase();
+        if (combined.includes("mongolia") || combined.includes("монгол")) return true;
+        return false; // international org but no Mongolia mention → skip
+      }
     }
 
     // For anything else: must mention Mongolia in title or snippet
