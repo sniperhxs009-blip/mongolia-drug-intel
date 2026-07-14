@@ -244,6 +244,40 @@ Intelligence data:\n${summary}`,
 });
 
 // =============================================================================
+// GET /api/debug-direct — Capture raw HTML from direct site searches
+// =============================================================================
+app.get("/api/debug-direct", async (_req, res) => {
+  const results: Record<string, any> = {};
+
+  const sites = [
+    { name: "ikon.mn", url: "https://ikon.mn/search?q=" + encodeURIComponent("хар тамхи") },
+    { name: "montsame.mn", url: "https://montsame.mn/mn/search?q=" + encodeURIComponent("хар тамхи") },
+    { name: "gogo.mn", url: "https://gogo.mn/search?q=" + encodeURIComponent("хар тамхи") },
+  ];
+
+  for (const site of sites) {
+    try {
+      const resp = await fetch(site.url, {
+        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+        signal: AbortSignal.timeout(15000),
+      });
+      const html = await resp.text();
+      results[site.name] = {
+        status: resp.status,
+        htmlLen: html.length,
+        htmlStart: html.substring(0, 500),
+        hasLink: html.includes("href="),
+        searchLinks: (html.match(/href="([^"]*\/n\/[^"]*|[^"]*\/read\/[^"]*|[^"]*\/r\/[^"]*)"/gi) || []).slice(0, 10),
+      };
+    } catch (e: any) {
+      results[site.name] = { error: String(e).substring(0, 200), code: e?.code };
+    }
+  }
+
+  res.json(results);
+});
+
+// =============================================================================
 // GET /api/debug — Diagnose individual search methods
 // =============================================================================
 app.get("/api/debug", async (_req, res) => {
