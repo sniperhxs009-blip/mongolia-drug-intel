@@ -244,33 +244,62 @@ Intelligence data:\n${summary}`,
 });
 
 // =============================================================================
-// GET /api/debug-direct — Capture raw HTML from direct site searches
+// GET /api/debug-direct — Capture raw context per link from direct search
 // =============================================================================
 app.get("/api/debug-direct", async (_req, res) => {
   const results: Record<string, any> = {};
 
+  const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
+  const DRUG_KW = ["хар тамхи", "мансууруулах", "наркотик", "фентанил", "психотроп", "каннабис", "drug", "narcotic"];
+
   const sites = [
-    { name: "ikon.mn", url: "https://ikon.mn/search?q=" + encodeURIComponent("хар тамхи") },
-    { name: "montsame.mn", url: "https://montsame.mn/mn/search?q=" + encodeURIComponent("хар тамхи") },
-    { name: "gogo.mn", url: "https://gogo.mn/search?q=" + encodeURIComponent("хар тамхи") },
+    { name: "ikon.mn", url: "https://ikon.mn/search?q=" + encodeURIComponent("хар тамхи"), pattern: /href="(\/n\/[^"]+)"/g },
+    { name: "montsame.mn", url: "https://montsame.mn/mn/search?q=" + encodeURIComponent("хар тамхи"), pattern: /href="(\/mn\/read\/[^"]+)"/g },
   ];
 
   for (const site of sites) {
     try {
       const resp = await fetch(site.url, {
-        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+        headers: { "User-Agent": USER_AGENT },
         signal: AbortSignal.timeout(15000),
       });
       const html = await resp.text();
-      results[site.name] = {
-        status: resp.status,
-        htmlLen: html.length,
-        htmlStart: html.substring(0, 500),
-        hasLink: html.includes("href="),
-        searchLinks: (html.match(/href="([^"]*\/n\/[^"]*|[^"]*\/read\/[^"]*|[^"]*\/r\/[^"]*)"/gi) || []).slice(0, 10),
-      };
+
+      const links: any[] = [];
+      const seen = new Set<string>();
+      let match: RegExpExecArray | null;
+      site.pattern.lastIndex = 0;
+
+      while ((match = site.pattern.exec(html)) !== null && links.length < 5) {
+        const href = match[1].replace(/#.*$/, "");
+        if (seen.has(href)) continue;
+        seen.add(href);
+
+        const ctxStart = Math.max(0, match.index - 300);
+        const ctxEnd = Math.min(html.length, match.index + 400);
+        const context = html.substring(ctxStart, ctxEnd)
+          .replace(/<script[\s\S]*?<\/script>/gi, "")
+          .replace(/<style[\s\S]*?<\/style>/gi, "")
+          .replace(/<img[^>]*>/gi, "")
+          .replace(/<[^>]*>/g, " ")
+          .replace(/&[a-z]+;/gi, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+
+        const hasKW = DRUG_KW.some(kw => context.toLowerCase().includes(kw.toLowerCase()));
+
+        links.push({
+          href,
+          ctxLen: context.length,
+          ctxStart100: context.substring(0, 100),
+          ctxEnd100: context.substring(Math.max(0, context.length - 100)),
+          hasKW,
+        });
+      }
+
+      results[site.name] = { status: resp.status, htmlLen: html.length, links };
     } catch (e: any) {
-      results[site.name] = { error: String(e).substring(0, 200), code: e?.code };
+      results[site.name] = { error: String(e).substring(0, 200) };
     }
   }
 
