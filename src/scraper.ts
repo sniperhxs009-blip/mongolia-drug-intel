@@ -262,6 +262,91 @@ async function searchWithSerper(): Promise<SerperResult[]> {
   return results;
 }
 
+// ── Bing Search API (better for Mongolian/Cyrillic queries) ─────────────────
+async function searchWithBing(): Promise<SerperResult[]> {
+  const apiKey = process.env.BING_API_KEY;
+  if (!apiKey) {
+    console.log("[Scraper] No BING_API_KEY — skipping Bing search");
+    return [];
+  }
+
+  const results: SerperResult[] = [];
+  const seen = new Set<string>();
+
+  // Bing is strong with non-English queries — focus on Mongolian keywords
+  const queries: { q: string; mkt: string }[] = [];
+
+  // Mongolian drug keywords on news sites
+  const mnDrug = '("хар тамхи" OR мансууруулах OR наркотик OR фентанил OR психотроп OR каннабис OR марихуана OR кокаин OR метамфетамин OR гашиш)';
+
+  for (const site of ["montsame.mn", "news.mn", "gogo.mn", "ikon.mn", "unuudur.mn", "24tsag.mn"]) {
+    queries.push({ q: `site:${site} ${mnDrug}`, mkt: "mn-MN" });
+  }
+
+  // English drug terms on .mn domains (Bing handles .mn better than Google)
+  const enDrug = "(drug OR narcotic OR trafficking OR meth OR fentanyl OR cannabis OR heroin OR cocaine OR seizure)";
+  for (const site of ["montsame.mn", "news.mn", "gogo.mn", "ikon.mn", "customs.gov.mn", "police.gov.mn"]) {
+    queries.push({ q: `site:${site} ${enDrug}`, mkt: "en-US" });
+  }
+
+  // Mongolia + drugs (broad, for international coverage Bing might have that Google missed)
+  queries.push({ q: `Mongolia (drug OR narcotic OR trafficking OR methamphetamine)`, mkt: "en-US" });
+  queries.push({ q: `Монгол (хар тамхи OR мансууруулах OR наркотик)`, mkt: "mn-MN" });
+
+  // Chinese keywords for cross-border content
+  queries.push({
+    q: `site:nncc626.com OR site:mps.gov.cn 蒙古 毒品 OR 安纳咖 OR 贩毒`,
+    mkt: "zh-CN",
+  });
+
+  console.log(`[Scraper] Running ${queries.length} Bing queries...`);
+
+  for (const query of queries) {
+    try {
+      const resp = await axios.get("https://api.bing.microsoft.com/v7.0/search", {
+        headers: {
+          "Ocp-Apim-Subscription-Key": apiKey,
+        },
+        params: {
+          q: query.q,
+          count: 20,
+          mkt: query.mkt,
+        },
+        timeout: 15000,
+      });
+
+      const webPages = resp.data?.webPages?.value || [];
+      for (const r of webPages) {
+        const key = r.url;
+        if (seen.has(key)) continue;
+
+        const combined = `${r.name} ${r.snippet || ""}`;
+
+        if (!isMongoliaRelevant(r.url, r.name, r.snippet || "")) continue;
+        if (!hasDrugKeyword(combined)) continue;
+
+        seen.add(key);
+        results.push({
+          title: r.name,
+          link: r.url,
+          snippet: r.snippet || "",
+          date: r.datePublished || "",
+        });
+      }
+    } catch (err: any) {
+      const status = err?.response?.status;
+      if (status === 401 || status === 403) {
+        console.error("[Scraper] Bing API key invalid or expired");
+        break;
+      }
+      console.error(`[Scraper] Bing query failed: ${String(err).substring(0, 100)}`);
+    }
+  }
+
+  console.log(`[Scraper] Bing returned ${results.length} Mongolia drug-related results`);
+  return results;
+}
+
 // ── RSS Feed parsing ────────────────────────────────────────────────────────
 async function fetchAndParseRSS(feedUrl: string): Promise<SerperResult[]> {
   try {
@@ -365,14 +450,15 @@ export async function scrapeAllSites(): Promise<ScrapedArticle[]> {
   const allRaw: SerperResult[] = [];
   const seenLinks = new Set<string>();
 
-  // Run Serper search and RSS parsing in parallel
-  const [serperResults, rssResults] = await Promise.all([
+  // Run Serper, Bing, and RSS in parallel
+  const [serperResults, bingResults, rssResults] = await Promise.all([
     searchWithSerper(),
+    searchWithBing(),
     fetchAllRSS(),
   ]);
 
-  // Merge: Serper first (higher quality), then RSS
-  for (const r of [...serperResults, ...rssResults]) {
+  // Merge: Serper first, then Bing, then RSS
+  for (const r of [...serperResults, ...bingResults, ...rssResults]) {
     if (!seenLinks.has(r.link)) {
       seenLinks.add(r.link);
       allRaw.push(r);
