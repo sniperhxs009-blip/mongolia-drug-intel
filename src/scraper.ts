@@ -403,27 +403,35 @@ async function searchSiteDirectly(config: SiteSearchConfig, query: string): Prom
 
     config.linkPattern.lastIndex = 0;
     while ((match = config.linkPattern.exec(html)) !== null) {
-      const href = match[1];
-      if (seen.has(href)) continue;
+      let href = match[1];
+      // Strip fragment and query params for dedup
+      const cleanHref = href.replace(/[#?].*$/, "");
+      if (seen.has(cleanHref)) continue;
       if (config.linkFilter && !config.linkFilter(href)) continue;
-      seen.add(href);
+      seen.add(cleanHref);
 
       const fullUrl = href.startsWith("http") ? href : config.linkPrefix + href;
+      // Use clean URL without fragment
+      const cleanUrl = fullUrl.replace(/#.*$/, "");
 
-      // Extract surrounding text context (~300 chars around the link) as snippet
+      // Extract surrounding text context (~300 chars around the link)
       const matchIdx = match.index;
-      const contextStart = Math.max(0, matchIdx - 150);
-      const contextEnd = Math.min(html.length, matchIdx + 400);
-      const context = html.substring(contextStart, contextEnd)
+      const contextStart = Math.max(0, matchIdx - 200);
+      const contextEnd = Math.min(html.length, matchIdx + 500);
+      let context = html.substring(contextStart, contextEnd)
+        .replace(/<script[\s\S]*?<\/script>/gi, "")
+        .replace(/<style[\s\S]*?<\/style>/gi, "")
+        .replace(/<img[^>]*>/gi, "")
         .replace(/<[^>]*>/g, " ")
         .replace(/&[a-z]+;/gi, " ")
+        .replace(/&\w+;/g, "")
         .replace(/\s+/g, " ")
-        .trim()
-        .substring(0, 300);
+        .trim();
 
-      // Use context as title/snippet — no drug keyword filter here,
-      // the search query already contains drug keywords
-      results.push({ title: context.substring(0, 150), link: fullUrl, snippet: context, date: "" });
+      // Extract a reasonable title: first 15-120 chars of context
+      const title = context.length > 15 ? context.substring(0, 120).trim() : context;
+
+      results.push({ title, link: cleanUrl, snippet: context.substring(0, 300), date: "" });
     }
 
     return results;
@@ -650,7 +658,7 @@ export async function scrapeAllSites(): Promise<ScrapedArticle[]> {
   console.log(`[Scraper] Total unique articles: ${allRaw.length}. Fetching content + dates...`);
 
   // Fetch full content + real publication dates for top articles
-  const topResults = allRaw.slice(0, 30);
+  const topResults = allRaw.slice(0, 60);
   const pageResults = await Promise.allSettled(
     topResults.map((r) => fetchArticlePage(r.link))
   );
