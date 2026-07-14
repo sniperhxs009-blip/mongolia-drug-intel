@@ -262,88 +262,77 @@ async function searchWithSerper(): Promise<SerperResult[]> {
   return results;
 }
 
-// ── Bing Search API (better for Mongolian/Cyrillic queries) ─────────────────
-async function searchWithBing(): Promise<SerperResult[]> {
-  const apiKey = process.env.BING_API_KEY;
+// ── ScrapingBee Google Search (best for Mongolian/Cyrillic queries) ─────────
+async function searchWithScrapingbee(): Promise<SerperResult[]> {
+  const apiKey = process.env.SCRAPINGBEE_API_KEY;
   if (!apiKey) {
-    console.log("[Scraper] No BING_API_KEY — skipping Bing search");
+    console.log("[Scraper] No SCRAPINGBEE_API_KEY — skipping ScrapingBee search");
     return [];
   }
 
   const results: SerperResult[] = [];
   const seen = new Set<string>();
 
-  // Bing is strong with non-English queries — focus on Mongolian keywords
-  const queries: { q: string; mkt: string }[] = [];
+  const queries: { search: string; language: string }[] = [];
 
-  // Mongolian drug keywords on news sites
-  const mnDrug = '("хар тамхи" OR мансууруулах OR наркотик OR фентанил OR психотроп OR каннабис OR марихуана OR кокаин OR метамфетамин OR гашиш)';
+  // Mongolian drug keywords on top news sites — ScrapingBee handles Cyrillic perfectly
+  const mnDrug = "хар тамхи OR мансууруулах OR наркотик OR фентанил OR психотроп OR каннабис OR марихуана OR кокаин OR метамфетамин OR гашиш";
 
   for (const site of ["montsame.mn", "news.mn", "gogo.mn", "ikon.mn", "unuudur.mn", "24tsag.mn"]) {
-    queries.push({ q: `site:${site} ${mnDrug}`, mkt: "mn-MN" });
+    queries.push({ search: `site:${site} (${mnDrug})`, language: "mn" });
   }
 
-  // English drug terms on .mn domains (Bing handles .mn better than Google)
-  const enDrug = "(drug OR narcotic OR trafficking OR meth OR fentanyl OR cannabis OR heroin OR cocaine OR seizure)";
-  for (const site of ["montsame.mn", "news.mn", "gogo.mn", "ikon.mn", "customs.gov.mn", "police.gov.mn"]) {
-    queries.push({ q: `site:${site} ${enDrug}`, mkt: "en-US" });
+  // English drug terms on Mongolian sites
+  const enDrug = "drug OR narcotic OR trafficking OR meth OR fentanyl OR cannabis OR heroin OR cocaine OR seizure";
+  for (const site of ["montsame.mn", "news.mn", "gogo.mn", "ikon.mn", "customs.gov.mn"]) {
+    queries.push({ search: `site:${site} (${enDrug})`, language: "en" });
   }
 
-  // Mongolia + drugs (broad, for international coverage Bing might have that Google missed)
-  queries.push({ q: `Mongolia (drug OR narcotic OR trafficking OR methamphetamine)`, mkt: "en-US" });
-  queries.push({ q: `Монгол (хар тамхи OR мансууруулах OR наркотик)`, mkt: "mn-MN" });
+  // Mongolia + drugs broad (international coverage)
+  queries.push({ search: "Mongolia drug trafficking OR narcotics OR seizure OR methamphetamine", language: "en" });
+  queries.push({ search: "Монгол хар тамхи OR мансууруулах OR наркотик", language: "mn" });
 
-  // Chinese keywords for cross-border content
-  queries.push({
-    q: `site:nncc626.com OR site:mps.gov.cn 蒙古 毒品 OR 安纳咖 OR 贩毒`,
-    mkt: "zh-CN",
-  });
+  // Chinese cross-border keywords
+  queries.push({ search: "蒙古 毒品 OR 贩毒 OR 缉毒 OR 安纳咖 OR 中蒙 走私毒品", language: "zh" });
 
-  console.log(`[Scraper] Running ${queries.length} Bing queries...`);
+  console.log(`[Scraper] Running ${queries.length} ScrapingBee queries...`);
 
-  for (const query of queries) {
+  for (const q of queries) {
     try {
-      const resp = await axios.get("https://api.bing.microsoft.com/v7.0/search", {
-        headers: {
-          "Ocp-Apim-Subscription-Key": apiKey,
-        },
-        params: {
-          q: query.q,
-          count: 20,
-          mkt: query.mkt,
-        },
-        timeout: 15000,
-      });
+      const searchEncoded = encodeURIComponent(q.search);
+      const url = `https://app.scrapingbee.com/api/v1/store/google?api_key=${apiKey}&search=${searchEncoded}&language=${q.language}&nb_results=20`;
 
-      const webPages = resp.data?.webPages?.value || [];
-      for (const r of webPages) {
+      const resp = await axios.get(url, { timeout: 20000 });
+      const organic = resp.data?.organic_results || [];
+
+      for (const r of organic) {
         const key = r.url;
         if (seen.has(key)) continue;
 
-        const combined = `${r.name} ${r.snippet || ""}`;
+        const combined = `${r.title || ""} ${r.snippet || ""}`;
 
-        if (!isMongoliaRelevant(r.url, r.name, r.snippet || "")) continue;
+        if (!isMongoliaRelevant(r.url, r.title || "", r.snippet || "")) continue;
         if (!hasDrugKeyword(combined)) continue;
 
         seen.add(key);
         results.push({
-          title: r.name,
+          title: r.title || "",
           link: r.url,
           snippet: r.snippet || "",
-          date: r.datePublished || "",
+          date: r.date || r.published_date || "",
         });
       }
     } catch (err: any) {
       const status = err?.response?.status;
       if (status === 401 || status === 403) {
-        console.error("[Scraper] Bing API key invalid or expired");
+        console.error("[Scraper] ScrapingBee API key invalid or expired");
         break;
       }
-      console.error(`[Scraper] Bing query failed: ${String(err).substring(0, 100)}`);
+      console.error(`[Scraper] ScrapingBee query failed: ${String(err).substring(0, 100)}`);
     }
   }
 
-  console.log(`[Scraper] Bing returned ${results.length} Mongolia drug-related results`);
+  console.log(`[Scraper] ScrapingBee returned ${results.length} Mongolia drug-related results`);
   return results;
 }
 
@@ -453,7 +442,7 @@ export async function scrapeAllSites(): Promise<ScrapedArticle[]> {
   // Run Serper, Bing, and RSS in parallel (each independently handled)
   const searchResults = await Promise.allSettled([
     searchWithSerper(),
-    searchWithBing(),
+    searchWithScrapingbee(),
     fetchAllRSS(),
   ]);
 
