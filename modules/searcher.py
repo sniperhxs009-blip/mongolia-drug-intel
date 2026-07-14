@@ -1006,7 +1006,9 @@ class CrawlCoordinator:
 # ============================================================
 
 async def crawl_sites_batch(site_names: list[str]) -> list[dict]:
-    """爬取指定站点列表，返回情报文章列表。适配 Vercel 10s 超时。"""
+    """爬取指定站点列表，返回情报文章列表。适配 Vercel 10s 超时。
+    策略：RSS 取全部链接不做标题预筛 → 详情页 strict_filter 判断涉毒。
+    """
     from modules.parser import parse_article_html
     from modules.filter_module import strict_filter
 
@@ -1015,8 +1017,7 @@ async def crawl_sites_batch(site_names: list[str]) -> list[dict]:
     if not sites_to_crawl:
         return []
 
-    drug_kw = _get_drug_keywords()
-    sem = asyncio.Semaphore(15)
+    sem = asyncio.Semaphore(12)
     articles: list[dict] = []
     seen: set[str] = set()
     lock = asyncio.Lock()
@@ -1028,18 +1029,18 @@ async def crawl_sites_batch(site_names: list[str]) -> list[dict]:
         found_links = []
 
         try:
-            async with httpx.AsyncClient(timeout=4, follow_redirects=True) as client:
-                # 优先 RSS
+            async with httpx.AsyncClient(timeout=5, follow_redirects=True) as client:
+                # RSS: 不过滤标题，取全部链接（由 strict_filter 在详情页判断）
                 for rss_path in RSS_PATHS:
-                    if len(found_links) >= 3:
+                    if len(found_links) >= 6:
                         break
                     try:
                         resp = await client.get(site_url + rss_path, headers={
                             "User-Agent": get_random_ua(),
-                            "Accept": "text/xml,application/xml,*/*",
+                            "Accept": "text/xml,application/xml,text/html,*/*",
                         })
                         if resp.status_code == 200 and len(resp.text) > 200:
-                            links = _extract_rss_links_with_filter(resp.text, site_url, drug_kw)
+                            links = _extract_rss_links(resp.text, site_url)
                             for l in links:
                                 if l not in found_links:
                                     found_links.append(l)
@@ -1047,27 +1048,28 @@ async def crawl_sites_batch(site_names: list[str]) -> list[dict]:
                         continue
 
                 # 兜底：首页提取
-                if len(found_links) < 2:
+                if len(found_links) < 3:
                     try:
                         resp = await client.get(site_url, headers={
                             "User-Agent": get_random_ua(), "Accept": "text/html",
                         })
                         if resp.status_code == 200:
                             links = extract_article_links(resp.text, site_url, domain)
-                            for l in links[:3]:
+                            for l in links[:5]:
                                 if l not in found_links:
                                     found_links.append(l)
                     except Exception:
                         pass
 
-                # 抓取文章详情
-                for link in found_links[:5]:
+                # 抓取文章详情（最多 6 篇，每篇由 strict_filter 把关）
+                for link in found_links[:6]:
                     async with sem:
                         try:
                             resp = await client.get(link, headers={
-                                "User-Agent": get_random_ua(), "Accept": "text/html",
+                                "User-Agent": get_random_ua(),
+                                "Accept": "text/html,application/xhtml+xml,*/*",
                             })
-                            if resp.status_code == 200 and resp.text:
+                            if resp.status_code == 200 and resp.text and len(resp.text) > 500:
                                 parsed = parse_article_html(resp.text, link, site)
                                 if parsed and strict_filter(parsed):
                                     async with lock:
@@ -1081,7 +1083,11 @@ async def crawl_sites_batch(site_names: list[str]) -> list[dict]:
         except Exception:
             pass
 
-    tasks = [asyncio.create_task(_crawl_one(s)) for s in sites_to_crawl]
-    await asyncio.gather(*tasks, return_exceptions=True)
+    # 总超时 8s，防止 Vercel 10s 硬限制
+    try:
+        tasks = [asyncio.create_task(_crawl_one(s)) for s in sites_to_crawl]
+        await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=8)
+    except asyncio.TimeoutError:
+        log.warning("站点批次超时 8s: %s", site_names)
 
     return articles
