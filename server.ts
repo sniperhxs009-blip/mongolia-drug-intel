@@ -112,12 +112,12 @@ app.post("/api/search", async (req, res) => {
       const enriched = await enrichArticlesWithAI(scraped);
       if (enriched.length > 0) {
         wasScrapeSuccess = true;
-        results = enriched
-          .map((art: any, i: number) => ({
-            ...scraped[i],
-            ...art,
-            id: art.id || `live-${Date.now()}-${i}`,
-            riskLevel: ["High", "Medium", "Low"].includes(art.riskLevel) ? art.riskLevel : "Medium",
+        results = scraped
+          .map((s: any, i: number) => ({
+            ...s,
+            ...(enriched[i] || {}),
+            id: enriched[i]?.id || s.id || `live-${Date.now()}-${i}`,
+            riskLevel: ["High", "Medium", "Low"].includes(enriched[i]?.riskLevel) ? enriched[i].riskLevel : s.riskLevel || "Medium",
           }));
       } else {
         results = scraped;
