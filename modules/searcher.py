@@ -641,29 +641,30 @@ class StreamingCrawlCoordinator:
         完整采集单个站点：发现 → 详情 → 解析 → 过滤。
         返回该站点采集到的所有情报。
         """
-        site_name = site["name"]
-        if not self.rate_limiter.can_fetch(site_name):
-            await self._progress(json.dumps({"type":"site_skip","site":site_name,"reason":"日上限"}))
-            return []
-
-        # 快速可达性检查，跳过不可达站点
-        reachable = await self._quick_check(site)
-        if not reachable:
-            await self._progress(json.dumps({"type":"site_skip","site":site_name,"reason":"不可达"}))
-            return []
-
-        keywords = get_keywords_for_site(site)
-        remaining = self.rate_limiter.get_remaining(site_name)
+        site_name = site.get("name", "unknown")
         articles = []
-        seen_urls = set()
-
-        from modules.parser import parse_article_html
-        from modules.filter_module import strict_filter
-
-        await self._progress(json.dumps({"type":"site_start","site":site_name}))
         rejected_count = {"parse_fail": 0, "filter_fail": 0, "http_fail": 0}
 
         try:
+            if not self.rate_limiter.can_fetch(site_name):
+                await self._progress(json.dumps({"type":"site_skip","site":site_name,"reason":"日上限"}))
+                return []
+
+            # 快速可达性检查，跳过不可达站点
+            reachable = await self._quick_check(site)
+            if not reachable:
+                await self._progress(json.dumps({"type":"site_skip","site":site_name,"reason":"不可达"}))
+                return []
+
+            keywords = get_keywords_for_site(site)
+            remaining = self.rate_limiter.get_remaining(site_name)
+            seen_urls = set()
+
+            from modules.parser import parse_article_html
+            from modules.filter_module import strict_filter
+
+            await self._progress(json.dumps({"type":"site_start","site":site_name}))
+
             async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True, verify=False) as client:
                 all_links = []
                 try:
@@ -687,11 +688,9 @@ class StreamingCrawlCoordinator:
                     if self.cancel_event.is_set():
                         return
 
-                    # 断点续爬：跳过已抓取的 URL
                     if self.checkpoint.is_crawled(article_url):
                         return
 
-                    # 失败重试检查：超过 3 次的直接跳过
                     if not self.checkpoint.can_retry(article_url, max_retries=3):
                         return
 
@@ -726,7 +725,7 @@ class StreamingCrawlCoordinator:
                         tasks = [fetch_article(link) for link in to_fetch]
                         await asyncio.gather(*tasks, return_exceptions=True)
         except Exception as e:
-            log.error("%s 爬取异常: %s", site_name, e)
+            log.error("%s 爬取异常: %s", site_name, e, exc_info=True)
             await self._progress(json.dumps({"type":"site_detail","site":site_name,"msg":f"爬取异常: {str(e)[:80]}"}))
 
         return articles, rejected_count
