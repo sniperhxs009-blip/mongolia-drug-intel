@@ -450,18 +450,21 @@ export async function scrapeAllSites(): Promise<ScrapedArticle[]> {
   const allRaw: SerperResult[] = [];
   const seenLinks = new Set<string>();
 
-  // Run Serper, Bing, and RSS in parallel
-  const [serperResults, bingResults, rssResults] = await Promise.all([
+  // Run Serper, Bing, and RSS in parallel (each independently handled)
+  const searchResults = await Promise.allSettled([
     searchWithSerper(),
     searchWithBing(),
     fetchAllRSS(),
   ]);
 
-  // Merge: Serper first, then Bing, then RSS
-  for (const r of [...serperResults, ...bingResults, ...rssResults]) {
-    if (!seenLinks.has(r.link)) {
-      seenLinks.add(r.link);
-      allRaw.push(r);
+  // Merge all successful results
+  for (const result of searchResults) {
+    if (result.status !== "fulfilled") continue;
+    for (const r of result.value) {
+      if (!seenLinks.has(r.link)) {
+        seenLinks.add(r.link);
+        allRaw.push(r);
+      }
     }
   }
 
