@@ -11,3 +11,5 @@ services:
         value: "20.18.0"
       - key: DEEPSEEK_API_KEY
         sync: false
+      - key: SERPER_API_KEY
+        sync: false
