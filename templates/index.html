@@ -130,6 +130,7 @@
         const PAGE_SIZE = 30;
         let eventSource = null;
         let liveCount = 0;
+        let articlesCache = [];  // SSE 推送的文章内存缓存（Vercel /tmp 不跨实例）
         let isLiveCrawl = false;
         let reconnectAttempt = 0;
         let reconnectTimer = null;
@@ -151,29 +152,86 @@
         }
 
         async function searchIntel(page = 1) {
-            if (isLiveCrawl) return;
             currentPage = page;
-            const params = new URLSearchParams();
-            const keyword = document.getElementById('search-keyword').value.trim();
+            const keyword = (document.getElementById('search-keyword').value || '').trim().toLowerCase();
             const language = document.getElementById('search-language').value;
             const startDate = document.getElementById('search-start-date').value;
             const endDate = document.getElementById('search-end-date').value;
-            if (keyword) params.set('keyword', keyword);
-            if (language) params.set('language', language);
-            if (startDate) params.set('start_date', startDate);
-            if (endDate) params.set('end_date', endDate);
-            params.set('limit', String(PAGE_SIZE));
-            params.set('offset', String((page - 1) * PAGE_SIZE));
 
-            try {
-                const resp = await fetch(`/api/intel?${params.toString()}`);
-                const data = await resp.json();
-                renderArticles(data.results || []);
-                renderPagination(data.total || 0, page);
-            } catch (e) {
-                document.getElementById('articles-list').innerHTML =
-                    '<div class="empty-state"><div>搜索出错，请重试</div></div>';
+            // 从内存缓存中过滤（Vercel /tmp 不跨实例共享，API 不可靠）
+            let filtered = articlesCache.slice();
+
+            // 关键词过滤
+            if (keyword) {
+                filtered = filtered.filter(a => {
+                    const haystack = [
+                        a.news_title || '', a.cn_title || '',
+                        a.content_summary || '', a.cn_summary || '',
+                        a.source_name || '',
+                    ].join(' ').toLowerCase();
+                    return haystack.includes(keyword);
+                });
             }
+
+            // 语种过滤
+            if (language) {
+                filtered = filtered.filter(a => a.language === language);
+            }
+
+            // 日期过滤
+            if (startDate || endDate) {
+                filtered = filtered.filter(a => {
+                    const d = parseRssDate(a.publish_time);
+                    if (!d) return true;
+                    if (startDate && d < new Date(startDate + 'T00:00:00')) return false;
+                    if (endDate && d > new Date(endDate + 'T23:59:59')) return false;
+                    return true;
+                });
+            }
+
+            // 按发布时间降序排列
+            filtered.sort((a, b) => {
+                const da = parseRssDate(a.publish_time);
+                const db = parseRssDate(b.publish_time);
+                return db - da;
+            });
+
+            const total = filtered.length;
+            const start = (page - 1) * PAGE_SIZE;
+            const results = filtered.slice(start, start + PAGE_SIZE);
+
+            if (total > 0) {
+                renderArticles(results);
+                renderPagination(total, page);
+            } else if (articlesCache.length === 0 && !isLiveCrawl) {
+                // 缓存为空且不在采集中 → 尝试 API 兜底（非 Vercel 环境）
+                try {
+                    const params = new URLSearchParams();
+                    if (keyword) params.set('keyword', keyword);
+                    if (language) params.set('language', language);
+                    if (startDate) params.set('start_date', startDate);
+                    if (endDate) params.set('end_date', endDate);
+                    params.set('limit', String(PAGE_SIZE));
+                    params.set('offset', String((page - 1) * PAGE_SIZE));
+                    const resp = await fetch(`/api/intel?${params.toString()}`);
+                    const data = await resp.json();
+                    renderArticles(data.results || []);
+                    renderPagination(data.total || 0, page);
+                } catch (e) {
+                    document.getElementById('articles-list').innerHTML =
+                        '<div class="empty-state"><div class="icon">📭</div><div>无匹配数据 — 尝试其他关键词或先执行采集</div></div>';
+                }
+            } else {
+                document.getElementById('articles-list').innerHTML =
+                    '<div class="empty-state"><div class="icon">📭</div><div>无匹配数据 — 尝试其他关键词或先执行采集</div></div>';
+                document.getElementById('pagination').innerHTML = '';
+            }
+        }
+
+        function parseRssDate(str) {
+            if (!str) return 0;
+            const d = new Date(str);
+            return isNaN(d.getTime()) ? 0 : d.getTime();
         }
 
         function renderArticleCard(item) {
@@ -274,6 +332,11 @@
                 reconnectAttempt = 0;
                 try {
                     const item = JSON.parse(e.data);
+                    // 存入内存缓存（去重），用于搜索
+                    const url = item.source_url || '';
+                    if (url && !articlesCache.some(a => a.source_url === url)) {
+                        articlesCache.push(item);
+                    }
                     prependArticle(item);
                     const counter = document.getElementById('live-counter');
                     if (counter) counter.textContent = liveCount;
@@ -288,6 +351,12 @@
                     const item = JSON.parse(e.data);
                     const targetUrl = item.source_url;
                     if (targetUrl) {
+                        // 更新缓存中的翻译字段
+                        const cached = articlesCache.find(a => a.source_url === targetUrl);
+                        if (cached) {
+                            if (item.cn_title) cached.cn_title = item.cn_title;
+                            if (item.cn_summary) cached.cn_summary = item.cn_summary;
+                        }
                         const cards = document.querySelectorAll('.article-card');
                         for (const card of cards) {
                             const link = card.querySelector('.source-link');
