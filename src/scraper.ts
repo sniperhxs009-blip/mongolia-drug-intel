@@ -97,23 +97,46 @@ function extractMatchedKeywords(text: string): string[] {
   return matched.slice(0, 10);
 }
 
-// ── Domain filtering: only Mongolian (.mn) + known international orgs ────────
-const ALLOWED_DOMAINS = [
-  ".mn",
-  "unodc.org",
-  "interpol.int",
-  "nncc626.com",
-  "mps.gov.cn",
+// ── Domain filtering ────────────────────────────────────────────────────────
+// Known Mongolian second-level domains (to distinguish .mn Mongolia from .mn Minnesota)
+const MONGOLIAN_SLD = new Set([
+  "montsame.mn", "news.mn", "gogo.mn", "ikon.mn", "unuudur.mn",
+  "24tsag.mn", "itoim.mn", "eguur.mn", "olloo.mn", "ubn.mn",
+  "time.mn", "fact.mn", "shuum.mn", "zaluu.mn", "assa.mn",
+  "customs.gov.mn", "police.gov.mn", "bpo.gov.mn", "mojha.gov.mn",
+  "nema.gov.mn", "nfa.gov.mn", "mongolia.gov.mn", "parliament.mn",
+  "ncmh.gov.mn", "mohs.mn", "moe.gov.mn",
+]);
+
+// International domains that publish Mongolia drug-related content
+const INTL_DRUG_DOMAINS = [
+  "unodc.org", "interpol.int", "nncc626.com", "mps.gov.cn",
+  "thediplomat.com", "unesco.org", "ocindex.net",
 ];
 
-function isAllowedDomain(url: string): boolean {
-  return ALLOWED_DOMAINS.some((d) => {
-    try {
-      return new URL(url).hostname.endsWith(d);
-    } catch {
-      return false;
+function isMongoliaRelevant(url: string, title: string, snippet: string): boolean {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, "");
+
+    // Check if it's a known Mongolian domain
+    if (MONGOLIAN_SLD.has(host)) return true;
+    // Check subdomains of known Mongolian domains
+    if (host.endsWith(".gov.mn")) return true;
+    for (const sld of MONGOLIAN_SLD) {
+      if (host.endsWith("." + sld)) return true;
     }
-  });
+
+    // Check international drug org domains
+    for (const d of INTL_DRUG_DOMAINS) {
+      if (host === d || host.endsWith("." + d)) return true;
+    }
+
+    // For anything else: must mention Mongolia in title or snippet
+    const combined = `${title} ${snippet}`.toLowerCase();
+    return combined.includes("mongolia") || combined.includes("монгол");
+  } catch {
+    return false;
+  }
 }
 
 // ── Serper.dev Google Search ────────────────────────────────────────────────
@@ -127,67 +150,37 @@ async function searchWithSerper(): Promise<SerperResult[]> {
   const results: SerperResult[] = [];
   const seen = new Set<string>();
 
-  // Build optimized queries targeting ONLY Mongolian domains
-  const mnKeywords = DRUG_KEYWORDS_MN.slice(0, 10).join(" OR ");
-  const enKeywords = ["drug", "narcotic", "trafficking", "seizure", "meth", "fentanyl", "cannabis", "arrest", "smuggling"].join(" OR ");
-
-  // Query batch targeting only .mn sites
+  // Free tier: one site per query (no multi-site OR allowed)
   const queries: { q: string; gl: string; hl: string }[] = [];
 
-  // Top Mongolian news sites with Mongolian keywords
-  const topNewsDomains = [
-    "montsame.mn", "ikon.mn", "news.mn", "gogo.mn",
-    "unuudur.mn", "24tsag.mn", "itoim.mn", "eguur.mn",
-    "olloo.mn", "ubn.mn", "time.mn", "fact.mn",
-  ];
-  for (const domain of topNewsDomains) {
-    queries.push({
-      q: `site:${domain} (${mnKeywords})`,
-      gl: "mn",
-      hl: "mn",
-    });
+  // 1) Each major Mongolian news site with English drug keywords
+  const enDrug = "drug OR narcotic OR trafficking OR meth OR fentanyl OR cannabis OR heroin OR cocaine";
+  const topMediaDomains = ["montsame.mn", "news.mn", "gogo.mn", "ikon.mn", "unuudur.mn"];
+  for (const d of topMediaDomains) {
+    queries.push({ q: `site:${d} ${enDrug}`, gl: "mn", hl: "en" });
   }
 
-  // Top news sites with English keywords
-  for (const domain of ["montsame.mn", "news.mn", "ikon.mn"]) {
-    queries.push({
-      q: `site:${domain} (${enKeywords})`,
-      gl: "mn",
-      hl: "en",
-    });
+  // 2) Major news sites with Mongolian drug keywords (one at a time)
+  const mnDrug = '"хар тамхи" OR мансууруулах OR наркотик OR фентанил OR психотроп';
+  for (const d of ["montsame.mn", "news.mn", "gogo.mn", "ikon.mn"]) {
+    queries.push({ q: `site:${d} ${mnDrug}`, gl: "mn", hl: "mn" });
   }
 
-  // Government/enforcement sites with Mongolian keywords
-  const govDomains = [
-    "customs.gov.mn", "police.gov.mn", "bpo.gov.mn",
-    "mojha.gov.mn", "nema.gov.mn", "mongolia.gov.mn",
-  ];
-  for (const domain of govDomains) {
-    queries.push({
-      q: `site:${domain} (${mnKeywords})`,
-      gl: "mn",
-      hl: "mn",
-    });
+  // 3) Government sites (general search — drug content is rare here)
+  for (const d of ["customs.gov.mn", "police.gov.mn", "bpo.gov.mn"]) {
+    queries.push({ q: `site:${d} ${mnDrug}`, gl: "mn", hl: "mn" });
   }
 
-  // UNODC + Interpol: Mongolia-specific drug pages
-  queries.push({
-    q: 'site:unodc.org Mongolia drug narcotic trafficking',
-    gl: "mn",
-    hl: "en",
-  });
-  queries.push({
-    q: 'site:interpol.int Mongolia drug',
-    gl: "mn",
-    hl: "en",
-  });
+  // 4) International orgs: Mongolia-specific drug pages
+  queries.push({ q: "site:unodc.org Mongolia drug OR narcotic OR trafficking", gl: "mn", hl: "en" });
+  queries.push({ q: "site:interpol.int Mongolia drug", gl: "mn", hl: "en" });
 
-  // China anti-drug: cross-border Mongolia
-  queries.push({
-    q: 'site:nncc626.com 蒙古 毒品 OR 安纳咖 OR 贩毒',
-    gl: "cn",
-    hl: "zh-cn",
-  });
+  // 5) Broad search: Mongolia + drug topics (catches The Diplomat, UNESCO, etc.)
+  queries.push({ q: "Mongolia drug trafficking OR narcotics OR seizure OR methamphetamine", gl: "mn", hl: "en" });
+  queries.push({ q: "Mongolia illicit drugs OR narcotic control OR cross-border smuggling", gl: "mn", hl: "en" });
+
+  // 6) Chinese side: cross-border Mongolia drug news
+  queries.push({ q: "site:nncc626.com 蒙古 OR 中蒙 OR 口岸 毒品 OR 安纳咖 OR 贩毒", gl: "cn", hl: "zh-cn" });
 
   console.log(`[Scraper] Running ${queries.length} Serper queries...`);
 
@@ -210,14 +203,13 @@ async function searchWithSerper(): Promise<SerperResult[]> {
         const key = r.link;
         if (seen.has(key)) continue;
 
-        // CRITICAL: only allow Mongolian domains + specific international orgs
-        if (!isAllowedDomain(r.link)) continue;
-
-        seen.add(key);
-
         const combined = `${r.title} ${r.snippet || ""}`;
+
+        // Must be Mongolia-relevant AND contain drug keywords
+        if (!isMongoliaRelevant(r.link, r.title, r.snippet || "")) continue;
         if (!hasDrugKeyword(combined)) continue;
 
+        seen.add(key);
         results.push({
           title: r.title,
           link: r.link,
@@ -231,11 +223,15 @@ async function searchWithSerper(): Promise<SerperResult[]> {
         console.error("[Scraper] Serper API key invalid or expired");
         break;
       }
+      if (status === 400) {
+        console.error(`[Scraper] Serper query rejected (free tier limit): ${query.q.substring(0, 60)}...`);
+        continue;
+      }
       console.error(`[Scraper] Serper query failed: ${String(err).substring(0, 100)}`);
     }
   }
 
-  console.log(`[Scraper] Serper returned ${results.length} drug-related .mn results`);
+  console.log(`[Scraper] Serper returned ${results.length} Mongolia drug-related results`);
   return results;
 }
 
