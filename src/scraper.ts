@@ -243,7 +243,7 @@ async function searchWithSerper(): Promise<SerperResult[]> {
     try {
       const resp = await axios.post(
         "https://google.serper.dev/news",
-        { q, num: 25, gl: "mn", hl: q.match(/[Ѐ-ӿ]/) ? "mn" : q.match(/[一-鿿]/) ? "zh-cn" : "en", tbs: "qdr:m" },
+        { q, num: 25, gl: "mn", hl: q.match(/[Ѐ-ӿ]/) ? "mn" : q.match(/[一-鿿]/) ? "zh-cn" : "en" },
         { headers: { "X-API-KEY": apiKey, "Content-Type": "application/json" }, timeout: 15000 }
       );
 
@@ -271,7 +271,7 @@ async function searchWithSerper(): Promise<SerperResult[]> {
     try {
       const resp = await axios.post(
         "https://google.serper.dev/search",
-        { q: query.q, num: 25, gl: query.gl, hl: query.hl, tbs: "qdr:m" },
+        { q: query.q, num: 25, gl: query.gl, hl: query.hl },
         {
           headers: {
             "X-API-KEY": apiKey,
@@ -719,6 +719,16 @@ export async function scrapeAllSites(): Promise<ScrapedArticle[]> {
 
     // Only use page-extracted date or today (Serper dates are indexed dates, not publish dates)
     const finalDate = page.date || new Date().toISOString().split("T")[0];
+
+    // Skip articles older than 6 months
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    if (page.date) {
+      try {
+        const pubDate = new Date(page.date);
+        if (!isNaN(pubDate.getTime()) && pubDate < sixMonthsAgo) continue;
+      } catch { /* keep if date unparseable */ }
+    }
 
     articles.push({
       title: r.title,
