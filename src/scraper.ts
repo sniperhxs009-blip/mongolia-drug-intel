@@ -404,7 +404,10 @@ async function searchSiteDirectly(config: SiteSearchConfig, query: string): Prom
     }
 
     return results;
-  } catch {
+  } catch (err: any) {
+    const status = err?.response?.status || "network";
+    const msg = err?.code || String(err).substring(0, 80);
+    console.error(`[Scraper] ${config.name} direct search FAILED (status=${status}, err=${msg})`);
     return [];
   }
 }
