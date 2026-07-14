@@ -408,16 +408,14 @@ async function searchSiteDirectly(config: SiteSearchConfig, query: string): Prom
       const cleanHref = href.replace(/[#?].*$/, "");
       if (seen.has(cleanHref)) continue;
       if (config.linkFilter && !config.linkFilter(href)) continue;
-      seen.add(cleanHref);
 
       const fullUrl = href.startsWith("http") ? href : config.linkPrefix + href;
-      // Use clean URL without fragment
       const cleanUrl = fullUrl.replace(/#.*$/, "");
 
-      // Extract surrounding text context (~300 chars around the link)
+      // Extract wide surrounding text context (~600 chars around the link)
       const matchIdx = match.index;
-      const contextStart = Math.max(0, matchIdx - 200);
-      const contextEnd = Math.min(html.length, matchIdx + 500);
+      const contextStart = Math.max(0, matchIdx - 300);
+      const contextEnd = Math.min(html.length, matchIdx + 400);
       let context = html.substring(contextStart, contextEnd)
         .replace(/<script[\s\S]*?<\/script>/gi, "")
         .replace(/<style[\s\S]*?<\/style>/gi, "")
@@ -428,7 +426,12 @@ async function searchSiteDirectly(config: SiteSearchConfig, query: string): Prom
         .replace(/\s+/g, " ")
         .trim();
 
-      // Extract a reasonable title: first 15-120 chars of context
+      // Filter: the context around the link must contain drug keywords
+      // (wider context than the old per-title check)
+      if (!hasDrugKeyword(context)) continue;
+      seen.add(cleanHref);
+
+      // Extract a reasonable title: first 15-120 chars of cleaned context
       const title = context.length > 15 ? context.substring(0, 120).trim() : context;
 
       results.push({ title, link: cleanUrl, snippet: context.substring(0, 300), date: "" });
