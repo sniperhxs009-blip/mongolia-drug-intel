@@ -715,8 +715,8 @@ export async function scrapeAllSites(): Promise<ScrapedArticle[]> {
     const domain = extractDomain(r.link);
     const matched = extractMatchedKeywords(fullText);
 
-    // Priority: page-extracted date > Serper/RSS date > today
-    const finalDate = page.date || r.date || new Date().toISOString().split("T")[0];
+    // Only use page-extracted date or today (Serper dates are indexed dates, not publish dates)
+    const finalDate = page.date || new Date().toISOString().split("T")[0];
 
     articles.push({
       title: r.title,
