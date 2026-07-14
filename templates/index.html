@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>蒙古国涉毒新闻情报系统 v6.3</title>
+    <title>蒙古国涉毒新闻情报系统 v7.0</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
@@ -33,18 +33,17 @@
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
         .progress-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
         .progress-text { color: #94a3b8; font-size: 0.9em; flex: 1; }
-        .progress-percent { color: #38bdf8; font-weight: 700; font-size: 1.1em; }
-        .progress-track { background: #0f172a; border-radius: 6px; height: 8px; margin-bottom: 12px; overflow: hidden; }
-        .progress-fill { background: linear-gradient(90deg, #10b981, #38bdf8); height: 100%; width: 0%; border-radius: 6px; transition: width 0.5s ease; }
-        .progress-detail { display: flex; gap: 8px; flex-wrap: wrap; }
         .progress-live-count { margin-top: 10px; font-size: 0.85em; color: #fbbf24; }
         .progress-live-count strong { font-size: 1.2em; }
+        .progress-detail { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+        .progress-site { background: #1e3a5f; color: #38bdf8; padding: 2px 8px; border-radius: 4px; font-size: 0.75em; }
+        .progress-site.done { background: #1a3a2a; color: #34d399; }
         .articles-list { display: flex; flex-direction: column; gap: 12px; }
         .article-card { background: #1e293b; border-radius: 10px; padding: 18px 22px; animation: fadeIn 0.3s ease; border-left: 3px solid #334155; }
         .article-card:hover { border-left-color: #38bdf8; background: #1e293bcc; }
         .article-title-orig { font-size: 1.05em; font-weight: 700; color: #f1f5f9; margin-bottom: 4px; line-height: 1.4; }
         .article-title-cn { font-size: 0.95em; color: #fbbf24; margin-bottom: 4px; line-height: 1.4; }
-        .article-title-cn::before { content: "🇨🇳 "; font-size: 0.8em; }
+        .article-title-cn::before { content: "CN "; font-size: 0.8em; }
         .article-summary { font-size: 0.85em; color: #94a3b8; margin: 6px 0; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
         .article-summary-cn { font-size: 0.83em; color: #cbd5e1; margin: 2px 0 6px 0; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
         .article-summary-cn::before { content: "摘要: "; color: #64748b; font-size: 0.85em; }
@@ -74,8 +73,8 @@
 <body>
     <div class="header">
         <div>
-            <h1>蒙古国涉毒新闻情报系统 v6.3</h1>
-            <div class="subtitle">Mongolia Drug Intelligence — 19 站点 · 分批采集 · 三语种显示</div>
+            <h1>蒙古国涉毒新闻情报系统 v7.0</h1>
+            <div class="subtitle">Mongolia Drug Intelligence — 19 站点 · SSE 实时流式采集 · 三语种</div>
         </div>
     </div>
 
@@ -84,10 +83,9 @@
             <div class="progress-header">
                 <div class="spinner"></div>
                 <div class="progress-text" id="progress-text">正在初始化采集...</div>
-                <div class="progress-percent" id="progress-percent">0%</div>
             </div>
-            <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
             <div class="progress-live-count" id="progress-live-count"></div>
+            <div class="progress-detail" id="progress-detail"></div>
         </div>
 
         <div class="controls">
@@ -111,162 +109,169 @@
     </div>
 
     <script>
-        let currentPage = 1;
-        const PAGE_SIZE = 30;
-        let articlesCache = [];
-        let isCrawling = false;
-        let crawlAborted = false;
         const ADMIN_TOKEN = '{{ admin_token }}';
         const langLabels = { mn: '蒙语', zh: '中文', en: '英语' };
-
-        document.addEventListener('DOMContentLoaded', () => { loadStats(); });
-        async function loadStats() { /* stub */ }
+        let articlesCache = [];
+        let es = null;
+        let isCrawling = false;
+        let currentPage = 1;
+        const PAGE_SIZE = 30;
 
         // ============================================================
-        // 分批采集: 先 19 个蒙古站点 (每批 3 个), 再 RSS 搜索引擎
+        // SSE 流式采集
         // ============================================================
 
-        async function startCrawl() {
+        function startCrawl() {
             if (isCrawling) return;
             isCrawling = true;
-            crawlAborted = false;
             articlesCache = [];
 
             const btn = document.getElementById('btn-crawl');
             const stopBtn = document.getElementById('btn-stop');
             const bar = document.getElementById('progress-bar');
             const pText = document.getElementById('progress-text');
-            const pPct = document.getElementById('progress-percent');
-            const pFill = document.getElementById('progress-fill');
             const pLive = document.getElementById('progress-live-count');
+            const pDetail = document.getElementById('progress-detail');
 
             btn.disabled = true; btn.textContent = '采集中...';
             stopBtn.classList.add('active');
             bar.classList.add('active');
             document.getElementById('articles-list').innerHTML = '';
+            pDetail.innerHTML = '';
 
-            function up(msg, pct) {
-                pText.textContent = msg;
-                pPct.textContent = pct + '%';
-                pFill.style.width = pct + '%';
-                pLive.innerHTML = '已采集 <strong>' + articlesCache.length + '</strong> 条情报';
-            }
+            let url = '/api/crawl/stream';
+            if (ADMIN_TOKEN) url += '?token=' + encodeURIComponent(ADMIN_TOKEN);
 
-            up('正在获取站点列表...', 0);
+            es = new EventSource(url);
+            pText.textContent = '连接中...';
 
-            try {
-                // Phase 1: 获取站点列表
-                const sr = await fetch('/api/sites');
-                const allSites = await sr.json();
-                const B = 3;  // 每批 3 个站点, 每批 < 10s
-                const totalB = Math.ceil(allSites.length / B);
-                let doneB = 0;
+            es.addEventListener('connected', function(e) {
+                pText.textContent = '已连接，正在初始化...';
+            });
 
-                for (let i = 0; i < allSites.length; i += B) {
-                    if (crawlAborted) break;
-                    const batch = allSites.slice(i, i + B);
-                    const bNum = Math.floor(i / B) + 1;
-                    const names = batch.map(s => s.name);
+            es.addEventListener('progress', function(e) {
+                try {
+                    const d = JSON.parse(e.data);
+                    if (d.type === 'crawl_start') {
+                        pText.textContent = '采集启动: ' + d.total_sites + ' 个站点';
+                    } else if (d.type === 'phase') {
+                        pText.textContent = d.msg || d.phase;
+                    } else if (d.type === 'search_engine') {
+                        pText.textContent = d.msg || 'RSS搜索中...';
+                    } else if (d.type === 'search_progress') {
+                        pText.textContent = d.msg || ('RSS检索: ' + d.current + '/' + d.total);
+                        pLive.innerHTML = '已采集 <strong>' + (d.article_count || articlesCache.length) + '</strong> 条';
+                    } else if (d.type === 'search_done') {
+                        pText.textContent = 'RSS检索完成: ' + (d.total_urls || 0) + ' 条';
+                        pLive.innerHTML = '已采集 <strong>' + articlesCache.length + '</strong> 条';
+                    } else if (d.type === 'site_start') {
+                        pText.textContent = '正在采集: ' + d.site;
+                    } else if (d.type === 'site_discovery') {
+                        pText.textContent = d.site + ': 发现 ' + d.links + ' 个链接';
+                    } else if (d.type === 'site_done') {
+                        pText.textContent = d.site + ': 完成 ' + (d.articles || 0) + ' 篇';
+                        const tag = document.createElement('span');
+                        tag.className = 'progress-site done';
+                        tag.textContent = d.site;
+                        pDetail.appendChild(tag);
+                    } else if (d.type === 'site_skip') {
+                        pText.textContent = d.site + ': 跳过 (' + (d.reason || '') + ')';
+                    } else if (d.type === 'batch_start') {
+                        pText.textContent = '批次 ' + d.batch + '/' + d.total_batches + ': ' + (d.sites||[]).join(', ');
+                    } else if (d.type === 'sampling_hit') {
+                        pText.textContent = d.site + ': 采样命中! ' + (d.title || '');
+                    } else if (d.type === 'crawl_done') {
+                        pText.textContent = '采集完成! ' + d.total_articles + ' 篇文章';
+                        pLive.innerHTML = '共采集 <strong>' + d.total_articles + '</strong> 条情报';
+                    } else {
+                        pText.textContent = e.data;
+                    }
+                } catch(ex) {}
+            });
 
-                    up('站点批次 ' + bNum + '/' + totalB + ': ' + names.join(', '), Math.round((doneB / totalB) * 80));
+            es.addEventListener('article', function(e) {
+                try {
+                    const a = JSON.parse(e.data);
+                    const u = a.source_url || '';
+                    if (u && !articlesCache.some(x => x.source_url === u)) {
+                        articlesCache.push(a);
+                        prependArticle(a);
+                        pLive.innerHTML = '已采集 <strong>' + articlesCache.length + '</strong> 条情报';
+                    }
+                } catch(ex) {}
+            });
 
-                    try {
-                        let url = '/api/crawl/sites';
-                        if (ADMIN_TOKEN) url += '?token=' + encodeURIComponent(ADMIN_TOKEN);
-                        const resp = await fetch(url, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ sites: names }),
-                        });
-                        const data = await resp.json();
-                        if (data.articles) {
-                            for (const a of data.articles) {
-                                const u = a.source_url || '';
-                                if (u && !articlesCache.some(x => x.source_url === u)) {
-                                    articlesCache.push(a);
-                                    prependArticle(a);
-                                }
-                            }
-                        }
-                    } catch (e) { console.warn('批次失败:', names.join(','), e); }
-                    doneB++;
-                    up('站点 ' + doneB + '/' + totalB + ' 批完成', Math.round((doneB / totalB) * 80));
-                }
+            es.addEventListener('translate', function(e) {
+                try {
+                    const t = JSON.parse(e.data);
+                    const url = t.source_url || '';
+                    const existing = articlesCache.find(x => x.source_url === url);
+                    if (existing) {
+                        if (t.cn_title) existing.cn_title = t.cn_title;
+                        if (t.cn_summary) existing.cn_summary = t.cn_summary;
+                        refreshArticleList();
+                    }
+                } catch(ex) {}
+            });
 
-                // Phase 2: RSS 搜索引擎
-                if (!crawlAborted) {
-                    up('RSS 搜索引擎检索中...', 85);
-                    try {
-                        let rssUrl = '/api/crawl/rss';
-                        if (ADMIN_TOKEN) rssUrl += '?token=' + encodeURIComponent(ADMIN_TOKEN);
-                        const rr = await fetch(rssUrl);
-                        const rd = await rr.json();
-                        if (rd.articles) {
-                            for (const a of rd.articles) {
-                                const u = a.source_url || '';
-                                if (u && !articlesCache.some(x => x.source_url === u)) {
-                                    articlesCache.push(a);
-                                    prependArticle(a);
-                                }
-                            }
-                        }
-                    } catch (e) { console.warn('RSS 失败:', e); }
-                }
-
-                up('采集完成! 共 ' + articlesCache.length + ' 条情报', 100);
-            } catch (e) {
-                pText.textContent = '采集出错: ' + e.message;
-            } finally {
+            es.addEventListener('done', function(e) {
+                try {
+                    const d = JSON.parse(e.data);
+                    pText.textContent = '采集完成! 共 ' + (d.total_articles || articlesCache.length) + ' 条情报';
+                    pLive.innerHTML = '采集完成，共 <strong>' + articlesCache.length + '</strong> 条情报';
+                } catch(ex) {}
                 finishCrawl();
-            }
+            });
+
+            es.addEventListener('error', function(e) {
+                try {
+                    const d = JSON.parse(e.data);
+                    pText.textContent = '错误: ' + (d.message || '');
+                } catch(ex) {}
+                finishCrawl();
+            });
+
+            es.onerror = function(e) {
+                if (es.readyState === EventSource.CLOSED) {
+                    pText.textContent = '连接已关闭';
+                }
+                finishCrawl();
+            };
         }
 
         function stopCrawl() {
-            crawlAborted = true;
+            if (es) { es.close(); es = null; }
             let url = '/api/crawl/stop';
             if (ADMIN_TOKEN) url += '?token=' + encodeURIComponent(ADMIN_TOKEN);
-            fetch(url, { method: 'POST' }).catch(() => {});
+            fetch(url, { method: 'POST' }).catch(function(){});
             document.getElementById('progress-text').textContent = '采集已停止';
             finishCrawl();
         }
 
         function finishCrawl() {
             isCrawling = false;
+            if (es) { es.close(); es = null; }
             const btn = document.getElementById('btn-crawl');
-            const ss = document.querySelector('.progress-bar .spinner');
             btn.disabled = false; btn.textContent = '开始采集';
             document.getElementById('btn-stop').classList.remove('active');
-            if (ss) ss.style.display = 'none';
-            setTimeout(() => {
-                document.getElementById('progress-bar').classList.remove('active');
-                if (ss) ss.style.display = '';
-                searchIntel();
-            }, 3000);
+            setTimeout(function() { document.getElementById('progress-bar').classList.remove('active'); }, 3000);
+            searchIntel();
         }
 
         function prependArticle(item) {
             const c = document.getElementById('articles-list');
             if (c.querySelector('.empty-state')) c.innerHTML = '';
             c.insertAdjacentHTML('afterbegin', renderArticleCard(item));
-            while (c.children.length > 200) c.removeChild(c.lastChild);
+            while (c.children.length > 500) c.removeChild(c.lastChild);
         }
 
-        // ============================================================
-        // 搜索 (内存缓存过滤)
-        // ============================================================
-
-        async function searchIntel(page) {
-            page = page || 1;
-            currentPage = page;
+        function refreshArticleList() {
             const kw = (document.getElementById('search-keyword').value || '').trim().toLowerCase();
             const lang = document.getElementById('search-language').value;
             const sd = document.getElementById('search-start-date').value;
             const ed = document.getElementById('search-end-date').value;
-
             let f = articlesCache.slice();
-            if (kw) {
-                f = f.filter(a => [a.news_title||'', a.cn_title||'', a.content_summary||'', a.cn_summary||'', a.source_name||''].join(' ').toLowerCase().includes(kw));
-            }
+            if (kw) f = f.filter(a => [a.news_title||'', a.cn_title||'', a.content_summary||'', a.source_name||''].join(' ').toLowerCase().includes(kw));
             if (lang) f = f.filter(a => a.language === lang);
             if (sd || ed) {
                 f = f.filter(a => {
@@ -278,34 +283,19 @@
                 });
             }
             f.sort((a, b) => parseRssDate(b.publish_time) - parseRssDate(a.publish_time));
+            const start = (currentPage - 1) * PAGE_SIZE;
+            renderArticles(f.slice(start, start + PAGE_SIZE));
+            renderPagination(f.length, currentPage);
+        }
 
-            const total = f.length;
-            const start = (page - 1) * PAGE_SIZE;
-            const results = f.slice(start, start + PAGE_SIZE);
+        // ============================================================
+        // 搜索 & 渲染
+        // ============================================================
 
-            if (total > 0) {
-                renderArticles(results);
-                renderPagination(total, page);
-            } else if (articlesCache.length === 0 && !isCrawling) {
-                try {
-                    const p = new URLSearchParams();
-                    if (kw) p.set('keyword', kw);
-                    if (lang) p.set('language', lang);
-                    if (sd) p.set('start_date', sd);
-                    if (ed) p.set('end_date', ed);
-                    p.set('limit', String(PAGE_SIZE));
-                    p.set('offset', String((page-1)*PAGE_SIZE));
-                    const r = await fetch('/api/intel?' + p.toString());
-                    const d = await r.json();
-                    renderArticles(d.results || []);
-                    renderPagination(d.total || 0, page);
-                } catch (e) {
-                    document.getElementById('articles-list').innerHTML = '<div class="empty-state"><div class="icon">📭</div><div>无匹配数据 — 尝试其他关键词或先执行采集</div></div>';
-                }
-            } else {
-                document.getElementById('articles-list').innerHTML = '<div class="empty-state"><div class="icon">📭</div><div>无匹配数据 — 尝试其他关键词或先执行采集</div></div>';
-                document.getElementById('pagination').innerHTML = '';
-            }
+        function searchIntel(page) {
+            page = page || 1;
+            currentPage = page;
+            refreshArticleList();
         }
 
         function parseRssDate(s) {
@@ -322,10 +312,6 @@
             searchIntel(1);
         }
 
-        // ============================================================
-        // 渲染
-        // ============================================================
-
         function renderArticleCard(item) {
             const t = esc(item.news_title || '(无标题)');
             const ct = esc(item.cn_title || '');
@@ -337,7 +323,7 @@
             const ll = langLabels[lang] || lang;
             const url = esc(item.source_url || '#');
             const cat = esc(item.site_category || '');
-            const link = '<a class="source-link" href="' + url + '" target="_blank" rel="noopener">查看原文 →</a>';
+            const link = '<a class="source-link" href="' + url + '" target="_blank" rel="noopener">查看原文 &rarr;</a>';
             const showCt = ct && ct !== t;
             const showCs = cs && cs !== s;
 
@@ -349,7 +335,7 @@
                 '<div class="article-meta">' +
                 '<span class="site-label">' + src + '</span>' +
                 (cat ? '<span>' + cat + '</span>' : '') +
-                '<span>' + (tm || '日期未知') + '</span>' +
+                '<span>' + (tm || '未知日期') + '</span>' +
                 '<span class="lang-tag lang-' + lang + '">' + ll + '</span>' +
                 link + '</div></div>';
         }
@@ -357,7 +343,11 @@
         function renderArticles(results) {
             const c = document.getElementById('articles-list');
             if (!results || results.length === 0) {
-                c.innerHTML = '<div class="empty-state"><div class="icon">📭</div><div>无匹配数据 — 尝试其他关键词或先执行采集</div></div>';
+                if (articlesCache.length === 0 && !isCrawling) {
+                    c.innerHTML = '<div class="empty-state"><div class="icon">X</div><div>暂无数据 — 点击"开始采集"获取情报</div></div>';
+                } else if (articlesCache.length > 0) {
+                    c.innerHTML = '<div class="empty-state"><div class="icon">X</div><div>无匹配数据 — 尝试其他关键词</div></div>';
+                }
                 return;
             }
             c.innerHTML = results.map(renderArticleCard).join('');
@@ -366,7 +356,7 @@
         function renderPagination(total, page) {
             const tp = Math.ceil(total / PAGE_SIZE);
             const p = document.getElementById('pagination');
-            if (tp <= 1) { p.innerHTML = total > 0 ? '<span>共 ' + total + ' 条记录</span>' : ''; return; }
+            if (tp <= 1) { p.innerHTML = total > 0 ? '<span>共 ' + total + ' 条</span>' : ''; return; }
             p.innerHTML = '<button onclick="searchIntel(' + (page-1) + ')" ' + (page<=1?'disabled':'') + '>上一页</button>' +
                 '<span>第 ' + page + ' / ' + tp + ' 页 (共 ' + total + ' 条)</span>' +
                 '<button onclick="searchIntel(' + (page+1) + ')" ' + (page>=tp?'disabled':'') + '>下一页</button>';
