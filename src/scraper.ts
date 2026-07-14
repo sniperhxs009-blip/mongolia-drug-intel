@@ -182,40 +182,50 @@ async function searchWithSerper(): Promise<SerperResult[]> {
   const results: SerperResult[] = [];
   const seen = new Set<string>();
 
-  // Free tier: one site per query (no multi-site OR allowed)
   const queries: { q: string; gl: string; hl: string }[] = [];
 
-  // 1) Each major Mongolian news site with English drug keywords
-  const enDrug = "drug OR narcotic OR trafficking OR meth OR fentanyl OR cannabis OR heroin OR cocaine";
-  const topMediaDomains = ["montsame.mn", "news.mn", "gogo.mn", "ikon.mn", "unuudur.mn"];
-  for (const d of topMediaDomains) {
-    queries.push({ q: `site:${d} ${enDrug}`, gl: "mn", hl: "en" });
+  // ── English broad searches (catch international coverage) ──
+  queries.push({ q: "Mongolia drug trafficking arrest seizure", gl: "mn", hl: "en" });
+  queries.push({ q: "Mongolia narcotics smuggling bust customs", gl: "mn", hl: "en" });
+  queries.push({ q: "Mongolia methamphetamine fentanyl synthetic drugs", gl: "mn", hl: "en" });
+  queries.push({ q: "Mongolia cannabis marijuana cocaine heroin seizure", gl: "mn", hl: "en" });
+  queries.push({ q: "Mongolia drug cartel organized crime narcotics", gl: "mn", hl: "en" });
+  queries.push({ q: "Mongolia UNODC drug report narcotic control", gl: "mn", hl: "en" });
+  queries.push({ q: "Mongolia cross-border drug smuggling China Russia", gl: "mn", hl: "en" });
+  queries.push({ q: "Mongolia opioid crisis substance abuse treatment", gl: "mn", hl: "en" });
+
+  // ── Chinese cross-border searches (extensive CN coverage) ──
+  queries.push({ q: "蒙古 毒品 走私 贩毒 缉毒 禁毒", gl: "cn", hl: "zh-cn" });
+  queries.push({ q: "中蒙 口岸 查获 毒品 安纳咖 冰毒", gl: "cn", hl: "zh-cn" });
+  queries.push({ q: "蒙古国 跨境贩毒 海关 缴获 海洛因", gl: "cn", hl: "zh-cn" });
+  queries.push({ q: "内蒙古 口岸 蒙古 走私毒品 苯甲酸钠咖啡因", gl: "cn", hl: "zh-cn" });
+  queries.push({ q: "中蒙边境 缉毒 边防 查缉 吸毒人员", gl: "cn", hl: "zh-cn" });
+  queries.push({ q: "蒙古 联合国 禁毒 毒品犯罪 国际合作", gl: "cn", hl: "zh-cn" });
+
+  // ── Site-specific searches on major .mn news sites ──
+  const topSites = ["montsame.mn", "news.mn", "gogo.mn", "ikon.mn", "unuudur.mn", "24tsag.mn"];
+  for (const site of topSites) {
+    queries.push({ q: `site:${site} drug OR narcotic OR trafficking OR cannabis OR meth OR fentanyl OR heroin OR cocaine OR seizure OR arrest`, gl: "mn", hl: "en" });
   }
 
-  // 2) Major news sites with Mongolian drug keywords (one at a time)
-  const mnDrug = '"хар тамхи" OR мансууруулах OR наркотик OR фентанил OR психотроп';
-  for (const d of ["montsame.mn", "news.mn", "gogo.mn", "ikon.mn"]) {
-    queries.push({ q: `site:${d} ${mnDrug}`, gl: "mn", hl: "mn" });
-  }
+  // ── Government / official sites ──
+  queries.push({ q: "site:customs.gov.mn drug OR narcotic OR seizure OR smuggling", gl: "mn", hl: "en" });
+  queries.push({ q: "site:police.gov.mn drug OR narcotic OR arrest OR trafficking", gl: "mn", hl: "en" });
+  queries.push({ q: "site:bpo.gov.mn drug OR narcotic OR smuggling", gl: "mn", hl: "en" });
 
-  // 3) Government sites (general search — drug content is rare here)
-  for (const d of ["customs.gov.mn", "police.gov.mn", "bpo.gov.mn"]) {
-    queries.push({ q: `site:${d} ${mnDrug}`, gl: "mn", hl: "mn" });
-  }
+  // ── International orgs with Mongolia focus ──
+  queries.push({ q: "site:unodc.org Mongolia drug narcotic trafficking", gl: "mn", hl: "en" });
+  queries.push({ q: "site:interpol.int Mongolia drug narcotic", gl: "mn", hl: "en" });
+  queries.push({ q: "site:incb.org Mongolia drug narcotic", gl: "mn", hl: "en" });
+  queries.push({ q: "site:thediplomat.com Mongolia drug narcotic crime", gl: "mn", hl: "en" });
+  queries.push({ q: "site:state.gov Mongolia drug trafficking narcotics", gl: "mn", hl: "en" });
 
-  // 4) International orgs: Mongolia-specific drug pages
-  queries.push({ q: "site:unodc.org Mongolia drug OR narcotic OR trafficking", gl: "mn", hl: "en" });
-  queries.push({ q: "site:interpol.int Mongolia drug", gl: "mn", hl: "en" });
-
-  // 5) Broad search: Mongolia + drug topics (catches The Diplomat, UNESCO, etc.)
-  queries.push({ q: "Mongolia drug trafficking OR narcotics OR seizure OR methamphetamine", gl: "mn", hl: "en" });
-  queries.push({ q: "Mongolia illicit drugs OR narcotic control OR cross-border smuggling", gl: "mn", hl: "en" });
-
-  // 6) Chinese side: cross-border Mongolia drug news
-  queries.push({ q: "site:nncc626.com 蒙古 OR 中蒙 OR 口岸 毒品 OR 安纳咖 OR 贩毒", gl: "cn", hl: "zh-cn" });
+  // ── Russian-language searches (Mongolia has Russian media coverage) ──
+  queries.push({ q: "Монголия наркотики контрабанда trafficking", gl: "mn", hl: "ru" });
 
   console.log(`[Scraper] Running ${queries.length} Serper queries...`);
 
+  let totalRaw = 0;
   for (const query of queries) {
     try {
       const resp = await axios.post(
@@ -231,13 +241,14 @@ async function searchWithSerper(): Promise<SerperResult[]> {
       );
 
       const organic = resp.data?.organic || [];
+      totalRaw += organic.length;
+
       for (const r of organic) {
         const key = r.link;
         if (seen.has(key)) continue;
 
         const combined = `${r.title} ${r.snippet || ""}`;
 
-        // Must be Mongolia-relevant AND contain drug keywords
         if (!isMongoliaRelevant(r.link, r.title, r.snippet || "")) continue;
         if (!hasDrugKeyword(combined)) continue;
 
@@ -263,7 +274,7 @@ async function searchWithSerper(): Promise<SerperResult[]> {
     }
   }
 
-  console.log(`[Scraper] Serper returned ${results.length} Mongolia drug-related results`);
+  console.log(`[Scraper] Serper: ${totalRaw} raw → ${results.length} Mongolia drug-related (${queries.length} queries)`);
   return results;
 }
 
