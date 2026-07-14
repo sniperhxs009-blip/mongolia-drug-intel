@@ -220,8 +220,41 @@ async function searchWithSerper(): Promise<SerperResult[]> {
   queries.push({ q: "site:thediplomat.com Mongolia drug narcotic crime", gl: "mn", hl: "en" });
   queries.push({ q: "site:state.gov Mongolia drug trafficking narcotics", gl: "mn", hl: "en" });
 
-  // ── Russian-language searches (Mongolia has Russian media coverage) ──
-  queries.push({ q: "Монголия наркотики контрабанда trafficking", gl: "mn", hl: "ru" });
+  // ── Google News search (recent articles, better for news sites) ──
+  const newsQueries = [
+    "Mongolia drug trafficking narcotics",
+    "Mongolia drug arrest seizure customs",
+    "Mongolia methamphetamine fentanyl bust",
+    "Mongolia cannabis marijuana smuggling",
+    "Монгол хар тамхи мансууруулах",
+    "Монгол наркотик психотроп",
+    "蒙古 毒品 贩毒 查获",
+  ];
+
+  for (const q of newsQueries) {
+    try {
+      const resp = await axios.post(
+        "https://google.serper.dev/news",
+        { q, num: 25, gl: "mn", hl: q.match(/[Ѐ-ӿ]/) ? "mn" : q.match(/[一-鿿]/) ? "zh-cn" : "en" },
+        { headers: { "X-API-KEY": apiKey, "Content-Type": "application/json" }, timeout: 15000 }
+      );
+
+      const items = resp.data?.news || [];
+      totalRaw += items.length;
+
+      for (const r of items) {
+        const key = r.link;
+        if (seen.has(key)) continue;
+        const combined = `${r.title} ${r.snippet || ""}`;
+        if (!isMongoliaRelevant(r.link, r.title, r.snippet || "")) continue;
+        if (!hasDrugKeyword(combined)) continue;
+        seen.add(key);
+        results.push({ title: r.title, link: r.link, snippet: r.snippet || "", date: r.date || "" });
+      }
+    } catch (err: any) {
+      // News endpoint may not be available on free tier, silently skip
+    }
+  }
 
   console.log(`[Scraper] Running ${queries.length} Serper queries...`);
 
@@ -629,15 +662,14 @@ export async function scrapeAllSites(): Promise<ScrapedArticle[]> {
   const allRaw: SerperResult[] = [];
   const seenLinks = new Set<string>();
 
-  // Run Serper, ScrapingBee, direct search, and RSS in parallel
+  // Run Serper + ScrapingBee + RSS in parallel
   const searchResults = await Promise.allSettled([
     searchWithSerper(),
     searchWithScrapingbee(),
-    searchAllSitesDirectly(),
     fetchAllRSS(),
   ]);
 
-  const methodNames = ["Serper", "ScrapingBee", "DirectSearch", "RSS"];
+  const methodNames = ["Serper", "ScrapingBee", "RSS"];
   for (let i = 0; i < searchResults.length; i++) {
     const result = searchResults[i];
     if (result.status === "fulfilled") {
