@@ -39,8 +39,8 @@ def _get_drug_keywords():
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_DIR = BASE_DIR / "config"
-DATA_DIR = BASE_DIR / "data"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+_DATA_DIR = Path("/tmp/data") if os.environ.get("VERCEL") == "1" else BASE_DIR / "data"
+_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 with open(CONFIG_DIR / "sites.json", "r", encoding="utf-8") as f:
     SITES_CONFIG = json.load(f)
@@ -120,7 +120,7 @@ class DailyRateLimiter:
         self._load()
 
     def _get_counter_path(self) -> Path:
-        return DATA_DIR / ".daily_counter.json"
+        return _DATA_DIR / ".daily_counter.json"
 
     def _load(self):
         p = self._get_counter_path()
@@ -150,7 +150,7 @@ class DailyRateLimiter:
 
 class CrawlLock:
     def __init__(self):
-        self.lock_path = DATA_DIR / ".crawl.lock"
+        self.lock_path = _DATA_DIR / ".crawl.lock"
 
     def _is_process_alive(self, pid: int) -> bool:
         """检查 PID 是否仍在运行"""
@@ -192,7 +192,7 @@ class CrawlCheckpoint:
     """断点续爬：持久化记录已抓取 URL 和失败 URL 重试次数"""
 
     def __init__(self):
-        self.checkpoint_path = DATA_DIR / ".crawl_checkpoint.json"
+        self.checkpoint_path = _DATA_DIR / ".crawl_checkpoint.json"
         self.crawled: set[str] = set()
         self.failed: dict[str, int] = {}  # url -> retry_count
         self._load()
