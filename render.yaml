@@ -1,11 +1,13 @@
 services:
   - type: web
     name: mongolia-drug-intel
-    env: python
+    env: node
     region: singapore
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn run:app --host 0.0.0.0 --port $PORT
+    buildCommand: npm install && npm run build
+    startCommand: node dist/server.cjs
     plan: free
     envVars:
-      - key: PYTHON_VERSION
-        value: "3.12.0"
+      - key: NODE_VERSION
+        value: "20.18.0"
+      - key: DEEPSEEK_API_KEY
+        sync: false
