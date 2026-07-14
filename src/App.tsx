@@ -31,9 +31,9 @@ import {
 
 export default function App() {
   // 1. Scanning Configurations State
-  const [selectedSiteCategories, setSelectedSiteCategories] = useState<string[]>(['enforcement', 'media', 'china']);
-  // Initial default keywords selected for instant scanning
-  const [selectedKeywords, setSelectedKeywords] = useState<string[]>(['КНБ', 'анага бодис', 'гаалийн илрүүлэлт', 'caffeine sodium benzoate']);
+  const [selectedSiteCategories, setSelectedSiteCategories] = useState<string[]>([]);
+  // Start with no keyword filter to show all real results on first load
+  const [selectedKeywords, setSelectedKeywords] = useState<string[]>([]);
   const [timeRange, setTimeRange] = useState<'day' | 'week' | 'month'>('month');
   const [customQuery, setCustomQuery] = useState('');
 

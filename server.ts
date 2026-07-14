@@ -131,7 +131,8 @@ app.post("/api/search", async (req, res) => {
   if (selectedSiteCategories.length > 0 || selectedKeywords.length > 0 || customQuery) {
     results = results.filter((item: any) => {
       const matchedSite = TARGET_SITES.find((s: any) => s.queryDomain === item.siteUrl);
-      const catOk = selectedSiteCategories.length === 0 || (matchedSite && selectedSiteCategories.includes(matchedSite.category));
+      // Allow articles from sites not in TARGET_SITES (e.g. thediplomat.com, incb.org)
+      const catOk = selectedSiteCategories.length === 0 || !matchedSite || selectedSiteCategories.includes(matchedSite.category);
       let kwOk = selectedKeywords.length === 0;
       if (selectedKeywords.length > 0 && item.matchedKeywords) {
         kwOk = item.matchedKeywords.some((kw: string) =>
