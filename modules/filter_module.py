@@ -342,23 +342,29 @@ def date_filter(item: dict, max_days: int = 30) -> bool:
 # ============================================================
 
 def _check_with_ai(item: dict) -> dict:
-    """使用 DeepSeek AI 进行智能分类，失败时自动回退规则引擎（5分钟冷却后重试）"""
+    """使用 DeepSeek AI 进行智能分类，连续失败 3 次后进入 5 分钟冷却，到期自动重试"""
     import modules.ai_classifier as aic
 
     try:
         if not aic._ai_available:
             if time.time() - aic._ai_fail_time > aic._AI_COOLDOWN_SECONDS:
-                log.info("DeepSeek API 冷却期结束，重新尝试")
+                log.info("DeepSeek API 冷却期结束，重置计数器并重新尝试")
                 aic._ai_available = True
+                aic._ai_fail_count = 0
             else:
                 return ai_classify(item)
 
         result = aic.classify_article(item)
         if result.get("ai_model") == "none":
-            log.warning("DeepSeek API 调用失败，回退规则引擎")
-            aic._ai_available = False
-            aic._ai_fail_time = time.time()
+            aic._ai_fail_count += 1
+            log.warning("DeepSeek API 调用失败 (%d/%d)", aic._ai_fail_count, aic._AI_MAX_CONSECUTIVE_FAILS)
+            if aic._ai_fail_count >= aic._AI_MAX_CONSECUTIVE_FAILS:
+                aic._ai_available = False
+                aic._ai_fail_time = time.time()
+                log.warning("DeepSeek API 连续失败 %d 次，进入 %ds 冷却期", aic._ai_fail_count, aic._AI_COOLDOWN_SECONDS)
             return ai_classify(item)
+        # 成功调用，重置失败计数
+        aic._ai_fail_count = 0
         return {
             "pass": result.get("is_relevant", False),
             "score": int(result.get("confidence", 0) * 10),
@@ -367,8 +373,10 @@ def _check_with_ai(item: dict) -> dict:
         }
     except Exception as e:
         log.error("DeepSeek 异常: %s", e)
-        aic._ai_available = False
-        aic._ai_fail_time = time.time()
+        aic._ai_fail_count += 1
+        if aic._ai_fail_count >= aic._AI_MAX_CONSECUTIVE_FAILS:
+            aic._ai_available = False
+            aic._ai_fail_time = time.time()
         return ai_classify(item)
 
 

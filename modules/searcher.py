@@ -463,17 +463,7 @@ class StreamingCrawlCoordinator:
                             if link not in discovered:
                                 discovered.append(link)
 
-        # Phase 3: 兜底 — 仅尝试首页，最多取 3 个链接（宁少勿错）
-        if len(discovered) < 3:
-            async with self.semaphore:
-                await asyncio.sleep(get_delay())
-                html = await self._http_get(client, site_url)
-            if html:
-                links = extract_article_links(html, site_url, domain)
-                for link in links[:3]:
-                    if link not in discovered:
-                        discovered.append(link)
-
+        # Phase 3: 不再回退到首页 — 搜索结果不足时直接返回已有链接，宁可少抓不可抓错
         return discovered[:8]
 
     async def _quick_check(self, site: dict) -> bool:
@@ -1006,10 +996,9 @@ class CrawlCoordinator:
 # ============================================================
 
 async def crawl_sites_batch(site_names: list[str]) -> list[dict]:
-    """爬取指定站点列表，返回情报文章列表。适配 Vercel 10s 超时。
-    策略：RSS 取全部链接不做标题预筛 → 详情页 strict_filter 判断涉毒。
+    """爬取指定站点列表的 RSS feed，直接从 XML 提取文章（不发详情页请求）。
+    适配 Vercel 10s 超时 — 每个站点只需 1 次 HTTP 请求。
     """
-    from modules.parser import parse_article_html
     from modules.filter_module import strict_filter
 
     all_sites = get_all_sites()
@@ -1017,77 +1006,141 @@ async def crawl_sites_batch(site_names: list[str]) -> list[dict]:
     if not sites_to_crawl:
         return []
 
-    sem = asyncio.Semaphore(12)
     articles: list[dict] = []
     seen: set[str] = set()
     lock = asyncio.Lock()
+    sem = asyncio.Semaphore(6)  # 每批 3 站点，6 并发足够
 
     async def _crawl_one(site: dict):
         site_url = site.get("url", "").rstrip("/")
-        domain = urlparse(site_url).netloc
         site_name = site["name"]
-        found_links = []
 
         try:
-            async with httpx.AsyncClient(timeout=5, follow_redirects=True) as client:
-                # RSS: 不过滤标题，取全部链接（由 strict_filter 在详情页判断）
+            async with httpx.AsyncClient(timeout=6, follow_redirects=True) as client:
                 for rss_path in RSS_PATHS:
-                    if len(found_links) >= 6:
-                        break
                     try:
                         resp = await client.get(site_url + rss_path, headers={
                             "User-Agent": get_random_ua(),
                             "Accept": "text/xml,application/xml,text/html,*/*",
                         })
-                        if resp.status_code == 200 and len(resp.text) > 200:
-                            links = _extract_rss_links(resp.text, site_url)
-                            for l in links:
-                                if l not in found_links:
-                                    found_links.append(l)
+                        if resp.status_code != 200 or len(resp.text) < 200:
+                            continue
+                        # 直接从 RSS XML 提取文章信息
+                        rss_articles = _parse_rss_items(resp.text, site_url, site_name, site)
+                        async with lock:
+                            for a in rss_articles:
+                                url = a.get("source_url", "")
+                                if url and url not in seen:
+                                    seen.add(url)
+                                    # 用 strict_filter 快速判断标题+摘要是否涉毒
+                                    if strict_filter(a):
+                                        articles.append(a)
+                        if rss_articles:
+                            return  # RSS 成功就停止尝试其他路径
                     except Exception:
                         continue
-
-                # 兜底：首页提取
-                if len(found_links) < 3:
-                    try:
-                        resp = await client.get(site_url, headers={
-                            "User-Agent": get_random_ua(), "Accept": "text/html",
-                        })
-                        if resp.status_code == 200:
-                            links = extract_article_links(resp.text, site_url, domain)
-                            for l in links[:5]:
-                                if l not in found_links:
-                                    found_links.append(l)
-                    except Exception:
-                        pass
-
-                # 抓取文章详情（最多 6 篇，每篇由 strict_filter 把关）
-                for link in found_links[:6]:
-                    async with sem:
-                        try:
-                            resp = await client.get(link, headers={
-                                "User-Agent": get_random_ua(),
-                                "Accept": "text/html,application/xhtml+xml,*/*",
-                            })
-                            if resp.status_code == 200 and resp.text and len(resp.text) > 500:
-                                parsed = parse_article_html(resp.text, link, site)
-                                if parsed and strict_filter(parsed):
-                                    async with lock:
-                                        url = parsed.get("source_url", "")
-                                        if url and url not in seen:
-                                            seen.add(url)
-                                            parsed["site_category"] = site_name
-                                            articles.append(parsed)
-                        except Exception:
-                            continue
         except Exception:
             pass
 
-    # 总超时 8s，防止 Vercel 10s 硬限制
+    tasks = [asyncio.create_task(_crawl_one(s)) for s in sites_to_crawl]
     try:
-        tasks = [asyncio.create_task(_crawl_one(s)) for s in sites_to_crawl]
         await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=8)
     except asyncio.TimeoutError:
         log.warning("站点批次超时 8s: %s", site_names)
 
     return articles
+
+
+def _parse_rss_items(xml_text: str, base_url: str, site_name: str, site: dict) -> list[dict]:
+    """从 RSS/Atom XML 直接提取文章标题、摘要、链接，不额外发 HTTP 请求。"""
+    import re
+    from html import unescape
+
+    items = []
+    # 分割 <item> 或 <entry> 块
+    raw_items = re.findall(r'<item>(.*?)</item>', xml_text, re.DOTALL)
+    if not raw_items:
+        raw_items = re.findall(r'<entry>(.*?)</entry>', xml_text, re.DOTALL)
+
+    for raw in raw_items:
+        # 标题
+        title = ""
+        tm = re.search(r'<title[^>]*>(.*?)</title>', raw, re.DOTALL)
+        if tm:
+            title = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', tm.group(1))
+            title = re.sub(r'<[^>]+>', '', title).strip()
+            title = unescape(title)
+
+        # 链接
+        link = ""
+        lm = re.search(r'<link>\s*(https?://[^<\s]+)\s*</link>', raw)
+        if lm:
+            link = lm.group(1)
+        if not link:
+            lm = re.search(r'<link[^>]*href="(https?://[^"]+)"', raw)
+            if lm:
+                link = lm.group(1)
+        if not link:
+            lm = re.search(r'<guid[^>]*>(https?://[^<\s]+)</guid>', raw)
+            if lm:
+                link = lm.group(1)
+        if not link:
+            # ikon.mn 风格短链接
+            lm = re.search(r'<link>\s*([^<\s]+)\s*</link>', raw)
+            if lm:
+                link = urljoin(base_url, lm.group(1).strip())
+
+        if not link or not title:
+            continue
+
+        # 摘要
+        desc = ""
+        dm = re.search(r'<description[^>]*>(.*?)</description>', raw, re.DOTALL)
+        if dm:
+            desc = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', dm.group(1))
+            desc = re.sub(r'<[^>]+>', '', desc).strip()
+            desc = unescape(desc)
+        if not desc:
+            dm = re.search(r'<summary[^>]*>(.*?)</summary>', raw, re.DOTALL)
+            if dm:
+                desc = re.sub(r'<[^>]+>', '', dm.group(1)).strip()
+
+        # 日期
+        pub_date = ""
+        dm = re.search(r'<pubDate[^>]*>(.*?)</pubDate>', raw, re.DOTALL)
+        if dm:
+            pub_date = dm.group(1).strip()
+        if not pub_date:
+            dm = re.search(r'<published[^>]*>(.*?)</published>', raw, re.DOTALL)
+            if dm:
+                pub_date = dm.group(1).strip()
+        if not pub_date:
+            dm = re.search(r'<updated[^>]*>(.*?)</updated>', raw, re.DOTALL)
+            if dm:
+                pub_date = dm.group(1).strip()
+
+        # 来源
+        source_name = site_name
+        sm = re.search(r'<source[^>]*>(.*?)</source>', raw, re.DOTALL)
+        if sm:
+            source_name = sm.group(1).strip() or site_name
+
+        # 语言检测
+        combined = title + " " + desc
+        lang = "en"
+        if any('А' <= c <= 'я' or c in 'өүӨҮ' for c in combined):
+            lang = "mn"
+        elif any('一' <= c <= '鿿' for c in combined):
+            lang = "zh"
+
+        items.append({
+            "news_title": title[:300],
+            "source_url": link,
+            "publish_time": pub_date,
+            "content_summary": desc[:400],
+            "source_name": source_name,
+            "language": lang,
+            "site_category": site_name,
+        })
+
+    return items[:10]  # 每个站点最多 10 篇

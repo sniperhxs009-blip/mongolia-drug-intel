@@ -21,10 +21,12 @@ DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 # 简单内存缓存：避免同一 URL 重复调用 API
 _cache: dict[str, dict] = {}
 
-# AI 可用性管理：失败后 5 分钟冷却自动重试
+# AI 可用性管理：连续失败 3 次后进入 5 分钟冷却，到期自动重试
 _ai_available = True
 _ai_fail_time: float = 0
+_ai_fail_count: int = 0
 _AI_COOLDOWN_SECONDS = 300
+_AI_MAX_CONSECUTIVE_FAILS = 3
 
 CLASSIFY_PROMPT = """你是一名毒品情报分析专家。请判断以下文章是否是关于【蒙古国毒品执法/毒品走私/毒品查获/禁毒行动】的新闻。
 
