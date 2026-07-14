@@ -83,10 +83,15 @@ Return ONLY: [{...}, {...}] JSON array.`,
     const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (jsonMatch) {
       const enriched = JSON.parse(jsonMatch[0]);
-      console.log(`[AI] DeepSeek enriched ${enriched.length} articles`);
-      return enriched;
+      console.log(`[AI] DeepSeek enriched ${enriched.length}/${scraped.length} articles`);
+      // Pad enrichment to match scraped length if AI returned fewer
+      while (enriched.length < scraped.length) {
+        enriched.push({});
+      }
+      return enriched.slice(0, scraped.length);
     }
-    return scraped;
+    console.log(`[AI] DeepSeek JSON parse failed, using raw scraped data`);
+    return scraped.map(() => ({})); // empty enrichment objects
   } catch (err) {
     console.error("[AI] Enrichment failed:", String(err).substring(0, 200));
     return scraped;
@@ -108,21 +113,14 @@ app.post("/api/search", async (req, res) => {
   try {
     const scraped = await scrapeAllSites();
     console.log(`[API] Scraped ${scraped.length} raw articles, enriching via DeepSeek...`);
-    if (scraped.length > 0) {
-      const enriched = await enrichArticlesWithAI(scraped);
-      if (enriched.length > 0) {
-        wasScrapeSuccess = true;
-        results = scraped
-          .map((s: any, i: number) => ({
-            ...s,
-            ...(enriched[i] || {}),
-            id: enriched[i]?.id || s.id || `live-${Date.now()}-${i}`,
-            riskLevel: ["High", "Medium", "Low"].includes(enriched[i]?.riskLevel) ? enriched[i].riskLevel : s.riskLevel || "Medium",
-          }));
-      } else {
-        results = scraped;
-      }
-    }
+    const enriched = await enrichArticlesWithAI(scraped);
+    wasScrapeSuccess = true;
+    results = scraped.map((s: any, i: number) => ({
+      ...s,
+      ...(enriched[i] || {}),
+      id: enriched[i]?.id || s.id || `live-${Date.now()}-${i}`,
+      riskLevel: ["High", "Medium", "Low"].includes(enriched[i]?.riskLevel) ? enriched[i].riskLevel : s.riskLevel || "Medium",
+    }));
   } catch (err) {
     console.error("[API] Scrape error:", String(err).substring(0, 200));
   }
