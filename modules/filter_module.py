@@ -322,17 +322,56 @@ def ai_classify(item: dict) -> dict:
     return {"pass": False, "score": total_score, "reason": f"评分不足 ({total_score})", "hits": hit_detail}
 
 
-def date_filter(item: dict, max_days: int = 30) -> bool:
-    """日期过滤：只保留最近 N 天内的新闻。无日期的文章视作不合格。"""
-    pub_date_str = item.get("publish_time", "").strip()
-    if not pub_date_str:
-        return False
+def _parse_flexible_date(date_str: str) -> Optional[datetime]:
+    """灵活日期解析，支持 RSS/Atom/ISO/中文/蒙文等多种格式"""
+    from email.utils import parsedate_to_datetime as email_parse
+    date_str = date_str.strip()
+    if not date_str:
+        return None
 
+    # 1. YYYY-MM-DD
     try:
-        pub_date = datetime.strptime(pub_date_str, "%Y-%m-%d")
+        return datetime.strptime(date_str[:10], "%Y-%m-%d")
     except ValueError:
-        return False
+        pass
 
+    # 2. ISO 8601: 2026-07-14T10:30:00+08:00
+    try:
+        return datetime.strptime(date_str[:19], "%Y-%m-%dT%H:%M:%S")
+    except ValueError:
+        pass
+
+    # 3. RFC 2822: Mon, 14 Jul 2026 10:30:00 +0800 (RSS pubDate)
+    try:
+        return email_parse(date_str)
+    except Exception:
+        pass
+
+    # 4. 中文/蒙文: 2026年7月14日 / 2026.07.14 / 14/07/2026
+    for pat, fmt in [
+        (r'(\d{4})\s*[年./]\s*(\d{1,2})\s*[月./]\s*(\d{1,2})', 'ymd'),
+        (r'(\d{1,2})/(\d{1,2})/(\d{4})', 'dmy'),
+        (r'(\d{4})\.(\d{1,2})\.(\d{1,2})', 'ymd'),
+    ]:
+        m = re.search(pat, date_str)
+        if m:
+            try:
+                if fmt == 'ymd':
+                    return datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+                else:
+                    return datetime(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+            except ValueError:
+                continue
+
+    return None
+
+
+def date_filter(item: dict, max_days: int = 30) -> bool:
+    """日期过滤：只保留最近 N 天内的新闻。支持多种日期格式。"""
+    pub_date_str = item.get("publish_time", "").strip()
+    pub_date = _parse_flexible_date(pub_date_str)
+    if not pub_date:
+        return False
     cutoff = datetime.now() - timedelta(days=max_days)
     return pub_date >= cutoff
 

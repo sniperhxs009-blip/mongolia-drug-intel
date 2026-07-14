@@ -996,10 +996,12 @@ class CrawlCoordinator:
 # ============================================================
 
 async def crawl_sites_batch(site_names: list[str]) -> list[dict]:
-    """爬取指定站点列表的 RSS feed，直接从 XML 提取文章（不发详情页请求）。
-    适配 Vercel 10s 超时 — 每个站点只需 1 次 HTTP 请求。
+    """爬取指定站点列表：RSS → 详情页 → 站内搜索 → 详情页。
+    优先 RSS（快速），RSS 文章用 strict_filter 判断，不够时抓详情页丰富内容。
+    无 RSS 站点用关键词搜索，然后抓详情页。适配 Vercel 10s 超时。
     """
     from modules.filter_module import strict_filter
+    from modules.parser import parse_article_html
 
     all_sites = get_all_sites()
     sites_to_crawl = [s for s in all_sites if s["name"] in site_names]
@@ -1009,14 +1011,35 @@ async def crawl_sites_batch(site_names: list[str]) -> list[dict]:
     articles: list[dict] = []
     seen: set[str] = set()
     lock = asyncio.Lock()
-    sem = asyncio.Semaphore(6)  # 每批 3 站点，6 并发足够
+    sem = asyncio.Semaphore(8)
+
+    async def _fetch_detail(client: httpx.AsyncClient, url: str, site: dict) -> Optional[dict]:
+        """抓取单篇文章详情页并解析"""
+        try:
+            async with sem:
+                resp = await client.get(url, headers={
+                    "User-Agent": get_random_ua(),
+                    "Accept": "text/html,application/xhtml+xml,*/*",
+                })
+            if resp.status_code == 200 and resp.text and len(resp.text) > 300:
+                parsed = parse_article_html(resp.text, url, site)
+                if parsed and strict_filter(parsed):
+                    return parsed
+        except Exception:
+            pass
+        return None
 
     async def _crawl_one(site: dict):
         site_url = site.get("url", "").rstrip("/")
         site_name = site["name"]
+        domain = urlparse(site_url).netloc
+        found = 0  # 该站点已采集的文章数
 
         try:
             async with httpx.AsyncClient(timeout=6, follow_redirects=True) as client:
+                rss_all_items = []  # 从 RSS 提取的所有条目（未过滤）
+
+                # === Step 1: RSS 快速提取 ===
                 for rss_path in RSS_PATHS:
                     try:
                         resp = await client.get(site_url + rss_path, headers={
@@ -1025,20 +1048,87 @@ async def crawl_sites_batch(site_names: list[str]) -> list[dict]:
                         })
                         if resp.status_code != 200 or len(resp.text) < 200:
                             continue
-                        # 直接从 RSS XML 提取文章信息
-                        rss_articles = _parse_rss_items(resp.text, site_url, site_name, site)
-                        async with lock:
-                            for a in rss_articles:
-                                url = a.get("source_url", "")
-                                if url and url not in seen:
-                                    seen.add(url)
-                                    # 用 strict_filter 快速判断标题+摘要是否涉毒
-                                    if strict_filter(a):
-                                        articles.append(a)
-                        if rss_articles:
-                            return  # RSS 成功就停止尝试其他路径
+                        rss_all_items = _parse_rss_items(resp.text, site_url, site_name, site)
+                        if rss_all_items:
+                            break
                     except Exception:
                         continue
+
+                # === Step 2: 先用 RSS 数据快速过滤（日期已标准化） ===
+                rss_pass = []
+                rss_fail = []
+                for a in rss_all_items:
+                    url = a.get("source_url", "")
+                    if not url:
+                        continue
+                    if strict_filter(a):
+                        rss_pass.append(a)
+                    else:
+                        rss_fail.append(a)
+
+                async with lock:
+                    for a in rss_pass:
+                        url = a.get("source_url", "")
+                        if url and url not in seen:
+                            seen.add(url)
+                            articles.append(a)
+                            found += 1
+
+                # === Step 3: RSS 未通过的，抓 2-3 个详情页获取完整内容 ===
+                if found < 3 and rss_fail:
+                    for a in rss_fail[:3]:
+                        url = a.get("source_url", "")
+                        async with lock:
+                            if url in seen:
+                                continue
+                            seen.add(url)
+                        detail = await _fetch_detail(client, url, site)
+                        if detail:
+                            async with lock:
+                                articles.append(detail)
+                                found += 1
+
+                # === Step 4: 无 RSS 或结果不足，尝试站内搜索 ===
+                if found < 2:
+                    search_urls = site.get("search_urls", [])
+                    drug_kw = _get_drug_keywords()
+                    # 用最可能的毒品关键词搜索
+                    search_kws = [kw for kw in drug_kw[:6] if len(kw) >= 4][:3]
+                    if not search_kws:
+                        search_kws = drug_kw[:2]
+
+                    for kw in search_kws:
+                        if found >= 3:
+                            break
+                        for search_url in search_urls[:2]:
+                            if found >= 3:
+                                break
+                            try:
+                                url = search_url.replace("{keyword}", quote(kw))
+                            except Exception:
+                                continue
+                            try:
+                                async with sem:
+                                    resp = await client.get(url, headers={
+                                        "User-Agent": get_random_ua(),
+                                        "Accept": "text/html,*/*",
+                                    })
+                                if resp.status_code == 200:
+                                    links = extract_article_links(resp.text, url, domain)
+                                    for link in links[:3]:
+                                        if found >= 3:
+                                            break
+                                        async with lock:
+                                            if link in seen:
+                                                continue
+                                            seen.add(link)
+                                        detail = await _fetch_detail(client, link, site)
+                                        if detail:
+                                            async with lock:
+                                                articles.append(detail)
+                                                found += 1
+                            except Exception:
+                                continue
         except Exception:
             pass
 
@@ -1049,6 +1139,44 @@ async def crawl_sites_batch(site_names: list[str]) -> list[dict]:
         log.warning("站点批次超时 8s: %s", site_names)
 
     return articles
+
+
+def _normalize_rss_date(raw_date: str) -> str:
+    """将 RSS/Atom 各种日期格式标准化为 YYYY-MM-DD"""
+    from email.utils import parsedate_to_datetime as email_parse
+    raw_date = raw_date.strip()
+    if not raw_date:
+        return ""
+
+    # ISO 8601: 2026-07-14T10:30:00+08:00
+    try:
+        return raw_date[:10]
+    except Exception:
+        pass
+
+    # RFC 2822: Mon, 14 Jul 2026 10:30:00 +0800
+    try:
+        return email_parse(raw_date).strftime("%Y-%m-%d")
+    except Exception:
+        pass
+
+    # 各种数字格式
+    for pat, fmt in [
+        (r'(\d{4})\s*[年./]\s*(\d{1,2})\s*[月./]\s*(\d{1,2})', 'ymd'),
+        (r'(\d{1,2})/(\d{1,2})/(\d{4})', 'dmy'),
+        (r'(\d{4})\.(\d{1,2})\.(\d{1,2})', 'ymd'),
+    ]:
+        m = re.search(pat, raw_date)
+        if m:
+            try:
+                if fmt == 'ymd':
+                    return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+                else:
+                    return f"{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}"
+            except ValueError:
+                continue
+
+    return raw_date[:10] if len(raw_date) >= 10 else ""
 
 
 def _parse_rss_items(xml_text: str, base_url: str, site_name: str, site: dict) -> list[dict]:
@@ -1105,19 +1233,19 @@ def _parse_rss_items(xml_text: str, base_url: str, site_name: str, site: dict) -
             if dm:
                 desc = re.sub(r'<[^>]+>', '', dm.group(1)).strip()
 
-        # 日期
+        # 日期 — 标准化为 YYYY-MM-DD
         pub_date = ""
         dm = re.search(r'<pubDate[^>]*>(.*?)</pubDate>', raw, re.DOTALL)
         if dm:
-            pub_date = dm.group(1).strip()
+            pub_date = _normalize_rss_date(dm.group(1).strip())
         if not pub_date:
             dm = re.search(r'<published[^>]*>(.*?)</published>', raw, re.DOTALL)
             if dm:
-                pub_date = dm.group(1).strip()
+                pub_date = _normalize_rss_date(dm.group(1).strip())
         if not pub_date:
             dm = re.search(r'<updated[^>]*>(.*?)</updated>', raw, re.DOTALL)
             if dm:
-                pub_date = dm.group(1).strip()
+                pub_date = _normalize_rss_date(dm.group(1).strip())
 
         # 来源
         source_name = site_name
