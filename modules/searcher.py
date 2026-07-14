@@ -700,7 +700,7 @@ class StreamingCrawlCoordinator:
 
         try:
             # ============================================================
-            # Phase 0: RSS 新闻检索
+            # Phase 0: RSS 新闻检索（流式推送，Vercel 10s 友好）
             # ============================================================
             await self._progress(json.dumps({"type":"phase","phase":"search_engine","msg":"RSS 新闻检索中..."}))
             try:
@@ -716,79 +716,82 @@ class StreamingCrawlCoordinator:
                         "msg": msg,
                     }))
 
-                search_articles = await search_all_articles(progress_callback=search_progress)
-                log.info("RSS 搜索: %d 篇完整文章", len(search_articles))
-                await self._progress(json.dumps({
-                    "type":"search_done","total_urls":len(search_articles)
-                }))
-
-                for article in search_articles:
+                # 用 on_article 回调实现流式推送：每发现一篇文章立即发 SSE
+                async def on_rss_article(article: dict):
                     if self.cancel_event.is_set():
-                        break
+                        return
                     url = article.get("source_url", "")
                     title = article.get("news_title", "")
                     if not title or len(title) < 5:
-                        continue
+                        return
                     if url:
                         self.checkpoint.mark_crawled(url)
+                    nonlocal total_articles
                     total_articles += 1
                     await self._article_callback(article)
 
+                search_articles = await search_all_articles(
+                    progress_callback=search_progress,
+                    on_article=on_rss_article,
+                )
+                log.info("RSS 搜索: %d 篇完整文章", len(search_articles))
                 await self._progress(json.dumps({
-                    "type":"search_articles","count":total_articles
+                    "type":"search_done","total_urls":len(search_articles)
                 }))
             except Exception as e:
                 log.warning("RSS 搜索异常: %s", e)
 
             # ============================================================
-            # Phase 1-2: 常规站点采集
+            # Phase 1-2: 常规站点采集（Vercel 上跳过，10s 超时不够）
             # ============================================================
-            batch_size = 10
-            for i in range(0, total_sites, batch_size):
-                if self.cancel_event.is_set():
-                    break
-                batch = all_sites[i:i + batch_size]
-                batch_num = i // batch_size + 1
-                total_batches = (total_sites + batch_size - 1) // batch_size
-                await self._progress(json.dumps({
-                    "type":"batch_start","batch":batch_num,"total_batches":total_batches,
-                    "sites":[s["name"] for s in batch]
-                }))
+            _ON_VERCEL = os.environ.get("VERCEL", "") == "1"
+            if not _ON_VERCEL:
+                batch_size = 10
+                for i in range(0, total_sites, batch_size):
+                    if self.cancel_event.is_set():
+                        break
+                    batch = all_sites[i:i + batch_size]
+                    batch_num = i // batch_size + 1
+                    total_batches = (total_sites + batch_size - 1) // batch_size
+                    await self._progress(json.dumps({
+                        "type":"batch_start","batch":batch_num,"total_batches":total_batches,
+                        "sites":[s["name"] for s in batch]
+                    }))
 
-                # 用 as_completed 逐个上报进度，不等待整批完成
-                futures = {asyncio.ensure_future(self._crawl_site(s)): s for s in batch}
-                for coro in asyncio.as_completed(list(futures.keys())):
-                    site = futures[coro]
-                    try:
-                        result = await coro
-                    except Exception:
-                        result = []
-                    if isinstance(result, tuple) and len(result) == 2:
-                        result_articles, rejected = result
-                        result_count = len(result_articles)
-                        site_results[site["name"]] = result_count
-                        total_articles += result_count
-                        await self._progress(json.dumps({
-                            "type":"site_done","site":site["name"],"articles":result_count,
-                            "rejected": rejected,
-                        }))
-                    elif isinstance(result, list):
-                        result_count = len(result)
-                        site_results[site["name"]] = result_count
-                        total_articles += result_count
-                        await self._progress(json.dumps({
-                            "type":"site_done","site":site["name"],"articles":result_count,
-                        }))
-                    else:
-                        site_results[site["name"]] = 0
-                        await self._progress(json.dumps({
-                            "type":"site_done","site":site["name"],"articles":0,
-                        }))
+                    # 用 as_completed 逐个上报进度，不等待整批完成
+                    futures = {asyncio.ensure_future(self._crawl_site(s)): s for s in batch}
+                    for coro in asyncio.as_completed(list(futures.keys())):
+                        site = futures[coro]
+                        try:
+                            result = await coro
+                        except Exception:
+                            result = []
+                        if isinstance(result, tuple) and len(result) == 2:
+                            result_articles, rejected = result
+                            result_count = len(result_articles)
+                            site_results[site["name"]] = result_count
+                            total_articles += result_count
+                            await self._progress(json.dumps({
+                                "type":"site_done","site":site["name"],"articles":result_count,
+                                "rejected": rejected,
+                            }))
+                        elif isinstance(result, list):
+                            result_count = len(result)
+                            site_results[site["name"]] = result_count
+                            total_articles += result_count
+                            await self._progress(json.dumps({
+                                "type":"site_done","site":site["name"],"articles":result_count,
+                            }))
+                        else:
+                            site_results[site["name"]] = 0
+                            await self._progress(json.dumps({
+                                "type":"site_done","site":site["name"],"articles":0,
+                            }))
 
-                await self._progress(json.dumps({
-                    "type":"batch_done","batch":batch_num,"total_batches":total_batches,
-                    "total_articles":total_articles
-                }))
+                    await self._progress(json.dumps({
+                        "type":"batch_done","batch":batch_num,"total_batches":total_batches,
+                        "total_articles":total_articles
+                    }))
 
             await self._progress(json.dumps({
                 "type":"crawl_done","total_sites":total_sites,"total_articles":total_articles

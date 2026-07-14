@@ -196,8 +196,10 @@ async def _fetch_rss(query: str, engine: str = "google") -> tuple[list[dict], in
 # 主入口
 # ============================================================
 
-async def search_all_articles(progress_callback=None) -> list[dict]:
-    """主入口：并行执行 Bing News + Google News RSS"""
+async def search_all_articles(progress_callback=None, on_article=None) -> list[dict]:
+    """主入口：并行执行 Bing News + Google News RSS。
+    on_article 回调在每篇文章入库时立即触发，实现流式推送（Vercel 10s 超时友好）。
+    """
     all_articles = []
     seen_urls = set()
     lock = asyncio.Lock()
@@ -217,17 +219,26 @@ async def search_all_articles(progress_callback=None) -> list[dict]:
     async def _run_one(query: str, engine: str):
         async with sem:
             articles, status = await _fetch_rss(query, engine)
+        if not articles:
+            async with lock:
+                completed[0] += 1
+            return
         async with lock:
-            if articles:
-                if engine == "bing":
-                    bing_hits[0] += len(articles)
-                else:
-                    google_hits[0] += len(articles)
+            if engine == "bing":
+                bing_hits[0] += len(articles)
+            else:
+                google_hits[0] += len(articles)
             for a in articles:
                 url = a.get("source_url", "")
                 if url and url not in seen_urls:
                     seen_urls.add(url)
                     all_articles.append(a)
+                    # 立即推送，不等待全部完成（Vercel 10s 超时需要尽早发 SSE）
+                    if on_article:
+                        try:
+                            await on_article(a)
+                        except Exception:
+                            pass
             completed[0] += 1
             current = len(all_articles)
         if progress_callback and completed[0] % 10 == 0:
