@@ -336,6 +336,108 @@ async function searchWithScrapingbee(): Promise<SerperResult[]> {
   return results;
 }
 
+// ── Direct site search (free, no API key) ───────────────────────────────────
+interface SiteSearchConfig {
+  name: string;
+  searchUrl: string;          // e.g. "https://ikon.mn/search?q="
+  linkPattern: RegExp;        // extract article URLs from search results
+  linkPrefix: string;         // e.g. "https://ikon.mn"
+}
+
+const SITE_SEARCH_CONFIGS: SiteSearchConfig[] = [
+  {
+    name: "ikon.mn",
+    searchUrl: "https://ikon.mn/search?q=",
+    linkPattern: /href="(\/n\/[^"]+)"/g,
+    linkPrefix: "https://ikon.mn",
+  },
+  {
+    name: "montsame.mn",
+    searchUrl: "https://montsame.mn/mn/search?q=",
+    linkPattern: /href="(\/mn\/read\/[^"]+)"/g,
+    linkPrefix: "https://montsame.mn",
+  },
+  {
+    name: "gogo.mn",
+    searchUrl: "https://gogo.mn/search?q=",
+    linkPattern: /href="(\/r\/[^"?]+)/g,
+    linkPrefix: "https://gogo.mn",
+  },
+];
+
+async function searchSiteDirectly(config: SiteSearchConfig, query: string): Promise<SerperResult[]> {
+  try {
+    const encoded = encodeURIComponent(query);
+    const resp = await axios.get(config.searchUrl + encoded, {
+      headers: {
+        "User-Agent": USER_AGENT,
+        Accept: "text/html,application/xhtml+xml",
+        "Accept-Language": "mn-MN,mn;q=0.9",
+      },
+      timeout: 15000,
+      validateStatus: (s) => s < 400,
+    });
+
+    const html: string = resp.data;
+    const results: SerperResult[] = [];
+    const seen = new Set<string>();
+    let match: RegExpExecArray | null;
+
+    config.linkPattern.lastIndex = 0;
+    while ((match = config.linkPattern.exec(html)) !== null) {
+      const href = match[1];
+      if (seen.has(href)) continue;
+      seen.add(href);
+
+      const fullUrl = href.startsWith("http") ? href : config.linkPrefix + href;
+
+      // Try to extract title near the link
+      const escapedHref = href.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const titleRx = new RegExp(`${escapedHref}[^>]*>([^<]{10,200})<`, "s");
+      const titleMatch = html.match(titleRx);
+      const title = titleMatch ? titleMatch[1].trim() : href;
+
+      if (!hasDrugKeyword(title)) continue;
+
+      results.push({ title, link: fullUrl, snippet: "", date: "" });
+    }
+
+    return results;
+  } catch {
+    return [];
+  }
+}
+
+async function searchAllSitesDirectly(): Promise<SerperResult[]> {
+  const allResults: SerperResult[] = [];
+  const queries = [
+    "хар тамхи",
+    "мансууруулах бодис",
+    "наркотик",
+    "фентанил",
+    "психотроп",
+    "каннабис",
+    "марихуана",
+    "кокаин",
+    "метамфетамин",
+    "гашиш",
+    "КНБ",
+    "анага бодис",
+    "drug trafficking",
+    "narcotic smuggling",
+  ];
+
+  // Search a subset of queries per site to avoid overwhelming
+  for (const config of SITE_SEARCH_CONFIGS) {
+    const queryBatch = queries.slice(0, 5).join(" OR ");
+    const results = await searchSiteDirectly(config, queryBatch);
+    console.log(`[Scraper] ${config.name} direct search → ${results.length} results`);
+    allResults.push(...results);
+  }
+
+  return allResults;
+}
+
 // ── RSS Feed parsing ────────────────────────────────────────────────────────
 async function fetchAndParseRSS(feedUrl: string): Promise<SerperResult[]> {
   try {
@@ -493,6 +595,7 @@ export async function scrapeAllSites(): Promise<ScrapedArticle[]> {
   const searchResults = await Promise.allSettled([
     searchWithSerper(),
     searchWithScrapingbee(),
+    searchAllSitesDirectly(),
     fetchAllRSS(),
   ]);
 
