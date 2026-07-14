@@ -9,7 +9,7 @@ import { createServer as createViteServer } from "vite";
 import OpenAI from "openai";
 import dotenv from "dotenv";
 import { TARGET_SITES } from "./src/data/sites.js";
-import { scrapeAllSites, type ScrapedArticle } from "./src/scraper.js";
+import { scrapeAllSites, searchWithSerper, searchWithScrapingbee, searchAllSitesDirectly, fetchAllRSS, type ScrapedArticle } from "./src/scraper.js";
 
 dotenv.config();
 
@@ -241,6 +241,56 @@ Intelligence data:\n${summary}`,
     const isQuota = errStr.includes("429") || errStr.includes("quota") || errStr.includes("Insufficient");
     res.json({ success: true, report: getOfflineReport(isQuota ? "> **[降级通报]** DeepSeek API配额超限，已启动离线决策保护。\n\n" : "> **[降级通报]** API连接异常，已启用本地专家级研判模板。\n\n"), isLive: false, isQuotaExceeded: isQuota });
   }
+});
+
+// =============================================================================
+// GET /api/debug — Diagnose individual search methods
+// =============================================================================
+app.get("/api/debug", async (_req, res) => {
+  const results: Record<string, any> = {};
+  const startTime = Date.now();
+
+  // Test each scraper method independently
+  const serperStart = Date.now();
+  try {
+    const r = await searchWithSerper();
+    results.serper = { ok: true, count: r.length, ms: Date.now() - serperStart, sample: r.slice(0, 2).map((x) => x.link) };
+  } catch (e: any) {
+    results.serper = { ok: false, error: String(e).substring(0, 200), ms: Date.now() - serperStart };
+  }
+
+  const sbStart = Date.now();
+  try {
+    const r = await searchWithScrapingbee();
+    results.scrapingbee = { ok: true, count: r.length, ms: Date.now() - sbStart };
+  } catch (e: any) {
+    results.scrapingbee = { ok: false, error: String(e).substring(0, 200), ms: Date.now() - sbStart };
+  }
+
+  const directStart = Date.now();
+  try {
+    const r = await searchAllSitesDirectly();
+    results.directSearch = { ok: true, count: r.length, ms: Date.now() - directStart, sample: r.slice(0, 2).map((x) => x.link) };
+  } catch (e: any) {
+    results.directSearch = { ok: false, error: String(e).substring(0, 200), ms: Date.now() - directStart };
+  }
+
+  const rssStart = Date.now();
+  try {
+    const r = await fetchAllRSS();
+    results.rss = { ok: true, count: r.length, ms: Date.now() - rssStart, sample: r.slice(0, 2).map((x) => x.link) };
+  } catch (e: any) {
+    results.rss = { ok: false, error: String(e).substring(0, 200), ms: Date.now() - rssStart };
+  }
+
+  results.totalMs = Date.now() - startTime;
+  results.env = {
+    hasSerperKey: !!process.env.SERPER_API_KEY,
+    hasScrapingbeeKey: !!process.env.SCRAPINGBEE_API_KEY,
+    hasDeepseekKey: !!process.env.DEEPSEEK_API_KEY,
+  };
+
+  res.json(results);
 });
 
 // =============================================================================

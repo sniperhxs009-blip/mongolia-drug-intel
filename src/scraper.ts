@@ -170,9 +170,10 @@ function isMongoliaRelevant(url: string, title: string, snippet: string): boolea
 async function searchWithSerper(): Promise<SerperResult[]> {
   const apiKey = process.env.SERPER_API_KEY;
   if (!apiKey) {
-    console.log("[Scraper] No SERPER_API_KEY — skipping Serper search");
+    console.warn("[Scraper] WARNING: No SERPER_API_KEY env var — Serper search disabled");
     return [];
   }
+  console.log(`[Scraper] Serper API key present (${apiKey.substring(0, 8)}...)`);
 
   const results: SerperResult[] = [];
   const seen = new Set<string>();
@@ -591,7 +592,7 @@ export async function scrapeAllSites(): Promise<ScrapedArticle[]> {
   const allRaw: SerperResult[] = [];
   const seenLinks = new Set<string>();
 
-  // Run Serper, Bing, and RSS in parallel (each independently handled)
+  // Run Serper, ScrapingBee, direct search, and RSS in parallel
   const searchResults = await Promise.allSettled([
     searchWithSerper(),
     searchWithScrapingbee(),
@@ -599,14 +600,19 @@ export async function scrapeAllSites(): Promise<ScrapedArticle[]> {
     fetchAllRSS(),
   ]);
 
-  // Merge all successful results
-  for (const result of searchResults) {
-    if (result.status !== "fulfilled") continue;
-    for (const r of result.value) {
-      if (!seenLinks.has(r.link)) {
-        seenLinks.add(r.link);
-        allRaw.push(r);
+  const methodNames = ["Serper", "ScrapingBee", "DirectSearch", "RSS"];
+  for (let i = 0; i < searchResults.length; i++) {
+    const result = searchResults[i];
+    if (result.status === "fulfilled") {
+      console.log(`[Scraper] ${methodNames[i]}: ${result.value.length} results`);
+      for (const r of result.value) {
+        if (!seenLinks.has(r.link)) {
+          seenLinks.add(r.link);
+          allRaw.push(r);
+        }
       }
+    } else {
+      console.error(`[Scraper] ${methodNames[i]} REJECTED: ${String(result.reason).substring(0, 120)}`);
     }
   }
 
@@ -655,4 +661,4 @@ export async function scrapeAllSites(): Promise<ScrapedArticle[]> {
   return articles;
 }
 
-export { hasDrugKeyword, DRUG_KEYWORDS_MN, DRUG_KEYWORDS_EN, DRUG_KEYWORDS_ZH };
+export { hasDrugKeyword, DRUG_KEYWORDS_MN, DRUG_KEYWORDS_EN, DRUG_KEYWORDS_ZH, searchWithSerper, searchWithScrapingbee, searchAllSitesDirectly, fetchAllRSS };
