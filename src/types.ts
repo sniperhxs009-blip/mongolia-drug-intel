@@ -16,7 +16,7 @@ export interface TargetSite {
   name: string;
   url: string;
   queryDomain: string;
-  category: 'enforcement' | 'government' | 'health' | 'education' | 'ngo' | 'media' | 'international' | 'china';
+  category: 'enforcement' | 'government' | 'health' | 'education' | 'ngo' | 'media' | 'international';
 }
 
 export interface NewsArticle {

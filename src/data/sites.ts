@@ -148,29 +148,6 @@ export const TARGET_SITES: TargetSite[] = [
     url: 'https://interpol.int',
     queryDomain: 'interpol.int',
     category: 'international'
-  },
-
-  // --- 九、中方国内合规涉中蒙跨境缉毒官方信源 ---
-  {
-    id: 'site-china-nncc',
-    name: '中国禁毒网 (国家禁毒办)',
-    url: 'http://www.nncc626.com',
-    queryDomain: 'nncc626.com',
-    category: 'china'
-  },
-  {
-    id: 'site-china-mps',
-    name: '中华人民共和国公安部官网',
-    url: 'https://mps.gov.cn',
-    queryDomain: 'mps.gov.cn',
-    category: 'china'
-  },
-  {
-    id: 'site-china-nmg',
-    name: '内蒙古自治区人民政府官网',
-    url: 'http://www.nmg.gov.mn',
-    queryDomain: 'nmg.gov.mn',
-    category: 'china'
   }
 ];
 
@@ -181,6 +158,5 @@ export const CATEGORY_NAMES = {
   education: '教育与宣传部门',
   ngo: '本土禁毒 NGO',
   media: '权威官方媒体',
-  international: '跨国/国际组织',
-  china: '中方跨境合作渠道'
+  international: '跨国/国际组织'
 };

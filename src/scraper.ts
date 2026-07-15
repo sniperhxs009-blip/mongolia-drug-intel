@@ -14,7 +14,7 @@ const DRUG_KEYWORDS_MN = [
   "каннабис", "марихуана", "кокаин", "метамфетамин", "амфетамин",
   "катинон", "мефедрон", "гашиш", "КНБ", "анага бодис",
   "кофеин натри бензоат", "эфедрин", "хууль бус эргэлт",
-  "гаалийн илрүүлэлт", "хил хамгаалах",
+  "гаалийн илрүүлэлт", "хил хамгаалах", "донтолт",
 ];
 
 const DRUG_KEYWORDS_EN = [
@@ -25,6 +25,7 @@ const DRUG_KEYWORDS_EN = [
   "crystal meth", "drug smuggl", "drug bust", "narcotic traffick",
   "synthetic drug", "illicit drug", "illicit traffick",
   "drug lord", "drug dealer", "drug network",
+  "addiction", "rehabilitation", "rehab",
 ];
 
 // Ambiguous keywords: only count if another strong drug keyword is also present
@@ -112,21 +113,17 @@ function extractMatchedKeywords(text: string): string[] {
 }
 
 // ── Domain filtering ────────────────────────────────────────────────────────
-// Known Mongolian second-level domains (to distinguish .mn Mongolia from .mn Minnesota)
+// ONLY the 19 specified target sites (src/data/sites.ts) — Mongolian domains
 const MONGOLIAN_SLD = new Set([
-  "montsame.mn", "news.mn", "gogo.mn", "ikon.mn", "unuudur.mn",
-  "24tsag.mn", "itoim.mn", "eguur.mn", "olloo.mn", "ubn.mn",
-  "time.mn", "fact.mn", "shuum.mn", "zaluu.mn", "assa.mn",
+  "montsame.mn", "ikon.mn", "shuum.mn", "news.mn",
   "customs.gov.mn", "police.gov.mn", "bpo.gov.mn", "mojha.gov.mn",
   "nema.gov.mn", "nfa.gov.mn", "mongolia.gov.mn", "parliament.mn",
   "ncmh.gov.mn", "mohs.mn", "moe.gov.mn",
 ]);
 
-// International domains that publish Mongolia drug-related content
+// Non-.mn specified target sites (must still mention Mongolia for intl orgs)
 const INTL_DRUG_DOMAINS = [
-  "unodc.org", "interpol.int", "nncc626.com", "mps.gov.cn",
-  "thediplomat.com", "unesco.org", "ocindex.net",
-  "incb.org", "state.gov",
+  "unodc.org", "interpol.int", "odkb-csto.org", "betelmongolia.org",
 ];
 
 // Social media / video — cannot crawl content, skip
@@ -139,6 +136,10 @@ const SKIP_DOMAINS = new Set([
 function isMongoliaRelevant(url: string, title: string, snippet: string): boolean {
   try {
     const host = new URL(url).hostname.replace(/^www\./, "");
+    const path = new URL(url).pathname + new URL(url).search;
+
+    // Skip listing/category/search pages — not individual articles
+    if (/\/(category|search|tag|special)\b/i.test(path) || /[?&]page=\d+/i.test(path)) return false;
 
     // Skip social media / video sites — cannot crawl for content
     for (const skip of SKIP_DOMAINS) {
@@ -162,9 +163,8 @@ function isMongoliaRelevant(url: string, title: string, snippet: string): boolea
       }
     }
 
-    // For anything else: must mention Mongolia in title or snippet
-    const combined = `${title} ${snippet}`.toLowerCase();
-    return combined.includes("mongolia") || combined.includes("монгол");
+    // NOT one of the 19 specified target sites → reject
+    return false;
   } catch {
     return false;
   }
@@ -184,48 +184,47 @@ async function searchWithSerper(): Promise<SerperResult[]> {
 
   const queries: { q: string; gl: string; hl: string }[] = [];
 
-  // ── English broad searches ──
-  queries.push({ q: "Mongolia drug trafficking arrest seizure customs 2025 2026", gl: "mn", hl: "en" });
-  queries.push({ q: "Mongolia narcotics smuggling bust meth fentanyl", gl: "mn", hl: "en" });
-  queries.push({ q: "Mongolia cross-border drug smuggling China Russia", gl: "mn", hl: "en" });
-  queries.push({ q: "Mongolia drug cartel organized crime heroin cocaine", gl: "mn", hl: "en" });
-  queries.push({ q: "Mongolia opioid crisis substance abuse addiction", gl: "mn", hl: "en" });
-
-  // ── Chinese cross-border news ──
-  queries.push({ q: "蒙古国 毒品 贩毒 走私 缉毒 查获 缴获", gl: "cn", hl: "zh-cn" });
-  queries.push({ q: "中蒙 口岸 查获 毒品 安纳咖 冰毒 海洛因", gl: "cn", hl: "zh-cn" });
-  queries.push({ q: "蒙古 跨境 贩毒 海关 边防 走私毒品", gl: "cn", hl: "zh-cn" });
-  queries.push({ q: "二连浩特 满洲里 口岸 蒙古 走私毒品", gl: "cn", hl: "zh-cn" });
-  queries.push({ q: "中蒙边境 缉毒 边防检查 吸毒 戒毒", gl: "cn", hl: "zh-cn" });
-
-  // ── Site-specific .mn news sites ──
-  for (const site of ["montsame.mn", "news.mn", "gogo.mn", "ikon.mn", "unuudur.mn", "24tsag.mn"]) {
-    queries.push({ q: `site:${site} drug OR narcotic OR trafficking OR cannabis OR meth OR fentanyl OR heroin OR cocaine OR seizure OR arrest OR smuggling`, gl: "mn", hl: "en" });
+  // ── 官方媒体 4 站：蒙语毒品关键词逐站搜索（Google 收录的是蒙语内容）──
+  for (const site of ["montsame.mn", "ikon.mn", "shuum.mn", "news.mn"]) {
+    queries.push({ q: `site:${site} мансууруулах`, gl: "mn", hl: "mn" });
+    queries.push({ q: `site:${site} "хар тамхи"`, gl: "mn", hl: "mn" });
   }
 
-  // ── Government sites ──
-  queries.push({ q: "site:customs.gov.mn drug OR narcotic OR seizure OR smuggling", gl: "mn", hl: "en" });
-  queries.push({ q: "site:police.gov.mn drug OR narcotic OR arrest", gl: "mn", hl: "en" });
+  // ── 执法机构 6 站（分组查询节省配额）──
+  queries.push({ q: `(site:customs.gov.mn OR site:bpo.gov.mn OR site:police.gov.mn) мансууруулах OR "хар тамхи"`, gl: "mn", hl: "mn" });
+  queries.push({ q: `(site:mojha.gov.mn OR site:nema.gov.mn OR site:nfa.gov.mn) мансууруулах OR "хар тамхи"`, gl: "mn", hl: "mn" });
 
-  // ── International orgs & news ──
-  queries.push({ q: "site:unodc.org Mongolia drug narcotic trafficking", gl: "mn", hl: "en" });
-  queries.push({ q: "site:thediplomat.com Mongolia drug narcotic crime", gl: "mn", hl: "en" });
-  queries.push({ q: "site:xinhuanet.com Mongolia drug trafficking", gl: "mn", hl: "en" });
+  // ── 政府/议会 + 卫生/教育 5 站 ──
+  queries.push({ q: `(site:mongolia.gov.mn OR site:parliament.mn) мансууруулах OR "хар тамхи"`, gl: "mn", hl: "mn" });
+  queries.push({ q: `(site:ncmh.gov.mn OR site:mohs.mn OR site:moe.gov.mn) мансууруулах OR донтолт`, gl: "mn", hl: "mn" });
 
-  // ── Google News search (recent articles) ──
+  // ── NGO（站点极小，收录全量抓取）──
+  queries.push({ q: "site:betelmongolia.org", gl: "mn", hl: "en" });
+
+  // ── 国际组织 3 站 ──
+  queries.push({ q: "site:unodc.org Mongolia drug narcotics", gl: "mn", hl: "en" });
+  queries.push({ q: "site:interpol.int Mongolia drug", gl: "mn", hl: "en" });
+  queries.push({ q: "site:odkb-csto.org Монголия наркотик", gl: "ru", hl: "ru" });
+
+  // ── 蒙语广域搜索（域名过滤器只放行 19 个指定站点）──
+  queries.push({ q: "мансууруулах бодис хураан авсан", gl: "mn", hl: "mn" });
+  queries.push({ q: '"хар тамхи" баривчилсан Монгол', gl: "mn", hl: "mn" });
+
+  console.log(`[Scraper] Running ${queries.length} Serper queries...`);
+
+  let totalRaw = 0;
+
+  // ── Google News search (recent articles, Mongolian keywords) ──
   const newsQueries = [
-    "Mongolia drug trafficking narcotics arrest",
-    "Mongolia methamphetamine fentanyl seizure customs",
-    "Mongolia cannabis marijuana smuggling bust",
-    "Монгол хар тамхи мансууруулах наркотик",
-    "蒙古 毒品 贩毒 查获 走私",
+    { q: "мансууруулах бодис", hl: "mn" },
+    { q: '"хар тамхи"', hl: "mn" },
   ];
 
-  for (const q of newsQueries) {
+  for (const nq of newsQueries) {
     try {
       const resp = await axios.post(
         "https://google.serper.dev/news",
-        { q, num: 25, gl: "mn", hl: q.match(/[Ѐ-ӿ]/) ? "mn" : q.match(/[一-鿿]/) ? "zh-cn" : "en" },
+        { q: nq.q, num: 10, gl: "mn", hl: nq.hl },
         { headers: { "X-API-KEY": apiKey, "Content-Type": "application/json" }, timeout: 15000 }
       );
 
@@ -242,18 +241,15 @@ async function searchWithSerper(): Promise<SerperResult[]> {
         results.push({ title: r.title, link: r.link, snippet: r.snippet || "", date: r.date || "" });
       }
     } catch (err: any) {
-      // News endpoint may not be available on free tier, silently skip
+      console.error(`[Scraper] Serper news query failed: ${String(err).substring(0, 100)}`);
     }
   }
 
-  console.log(`[Scraper] Running ${queries.length} Serper queries...`);
-
-  let totalRaw = 0;
   for (const query of queries) {
     try {
       const resp = await axios.post(
         "https://google.serper.dev/search",
-        { q: query.q, num: 25, gl: query.gl, hl: query.hl },
+        { q: query.q, num: 10, gl: query.gl, hl: query.hl },
         {
           headers: {
             "X-API-KEY": apiKey,
@@ -273,7 +269,8 @@ async function searchWithSerper(): Promise<SerperResult[]> {
         const combined = `${r.title} ${r.snippet || ""}`;
 
         if (!isMongoliaRelevant(r.link, r.title, r.snippet || "")) continue;
-        if (!hasDrugKeyword(combined)) continue;
+        // betelmongolia.org 是戒毒 NGO，全站内容都与毒品相关，无需关键词过滤
+        if (extractDomain(r.link) !== "betelmongolia.org" && !hasDrugKeyword(combined)) continue;
 
         seen.add(key);
         results.push({
@@ -314,25 +311,20 @@ async function searchWithScrapingbee(): Promise<SerperResult[]> {
 
   const queries: { search: string; language: string }[] = [];
 
-  // Mongolian drug keywords on top news sites — ScrapingBee handles Cyrillic perfectly
+  // Mongolian drug keywords on the 4 specified media sites — ScrapingBee handles Cyrillic perfectly
   const mnDrug = "хар тамхи OR мансууруулах OR наркотик OR фентанил OR психотроп OR каннабис OR марихуана OR кокаин OR метамфетамин OR гашиш";
 
-  for (const site of ["montsame.mn", "news.mn", "gogo.mn", "ikon.mn", "unuudur.mn", "24tsag.mn"]) {
+  for (const site of ["montsame.mn", "ikon.mn", "shuum.mn", "news.mn"]) {
     queries.push({ search: `site:${site} (${mnDrug})`, language: "mn" });
   }
 
-  // English drug terms on Mongolian sites
-  const enDrug = "drug OR narcotic OR trafficking OR meth OR fentanyl OR cannabis OR heroin OR cocaine OR seizure";
-  for (const site of ["montsame.mn", "news.mn", "gogo.mn", "ikon.mn", "customs.gov.mn"]) {
-    queries.push({ search: `site:${site} (${enDrug})`, language: "en" });
+  // Government / enforcement sites
+  for (const site of ["customs.gov.mn", "police.gov.mn", "bpo.gov.mn"]) {
+    queries.push({ search: `site:${site} (мансууруулах OR хар тамхи)`, language: "mn" });
   }
 
-  // Mongolia + drugs broad (international coverage)
-  queries.push({ search: "Mongolia drug trafficking OR narcotics OR seizure OR methamphetamine", language: "en" });
+  // Mongolia + drugs broad (domain filter restricts to the 19 specified sites)
   queries.push({ search: "Монгол хар тамхи OR мансууруулах OR наркотик", language: "mn" });
-
-  // Chinese cross-border keywords
-  queries.push({ search: "蒙古 毒品 OR 贩毒 OR 缉毒 OR 安纳咖 OR 中蒙 走私毒品", language: "zh" });
 
   console.log(`[Scraper] Running ${queries.length} ScrapingBee queries...`);
 
@@ -373,130 +365,6 @@ async function searchWithScrapingbee(): Promise<SerperResult[]> {
 
   console.log(`[Scraper] ScrapingBee returned ${results.length} Mongolia drug-related results`);
   return results;
-}
-
-// ── Direct site search (free, no API key) ───────────────────────────────────
-interface SiteSearchConfig {
-  name: string;
-  searchUrl: string;
-  linkPattern: RegExp;
-  linkPrefix: string;
-  linkFilter?: (href: string) => boolean;
-}
-
-const SITE_SEARCH_CONFIGS: SiteSearchConfig[] = [
-  {
-    name: "ikon.mn",
-    searchUrl: "https://ikon.mn/search?q=",
-    linkPattern: /href="(\/n\/[^"]+)"/g,
-    linkPrefix: "https://ikon.mn",
-  },
-  {
-    name: "montsame.mn",
-    searchUrl: "https://montsame.mn/mn/search?q=",
-    linkPattern: /href="(\/mn\/read\/[^"]+)"/g,
-    linkPrefix: "https://montsame.mn",
-  },
-  {
-    name: "gogo.mn",
-    searchUrl: "https://gogo.mn/search?q=",
-    linkPattern: /<a[^>]*href="(\/[^"]+)"[^>]*>/gi,
-    linkPrefix: "https://gogo.mn",
-    linkFilter: (href: string) => href.length > 4 && !href.includes("?"),
-  },
-];
-
-async function searchSiteDirectly(config: SiteSearchConfig, query: string): Promise<SerperResult[]> {
-  try {
-    const encoded = encodeURIComponent(query);
-    const resp = await axios.get(config.searchUrl + encoded, {
-      headers: {
-        "User-Agent": USER_AGENT,
-        Accept: "text/html,application/xhtml+xml",
-        "Accept-Language": "mn-MN,mn;q=0.9",
-      },
-      timeout: 15000,
-      validateStatus: (s) => s < 400,
-    });
-
-    const html: string = resp.data;
-    const results: SerperResult[] = [];
-    const seen = new Set<string>();
-    let match: RegExpExecArray | null;
-
-    config.linkPattern.lastIndex = 0;
-    while ((match = config.linkPattern.exec(html)) !== null) {
-      let href = match[1];
-      // Strip fragment and query params for dedup
-      const cleanHref = href.replace(/[#?].*$/, "");
-      if (seen.has(cleanHref)) continue;
-      if (config.linkFilter && !config.linkFilter(href)) continue;
-
-      const fullUrl = href.startsWith("http") ? href : config.linkPrefix + href;
-      const cleanUrl = fullUrl.replace(/#.*$/, "");
-
-      // Extract wide surrounding text context (~600 chars around the link)
-      const matchIdx = match.index;
-      const contextStart = Math.max(0, matchIdx - 300);
-      const contextEnd = Math.min(html.length, matchIdx + 400);
-      let context = html.substring(contextStart, contextEnd)
-        .replace(/<script[\s\S]*?<\/script>/gi, "")
-        .replace(/<style[\s\S]*?<\/style>/gi, "")
-        .replace(/<img[^>]*>/gi, "")
-        .replace(/<[^>]*>/g, " ")
-        .replace(/&[a-z]+;/gi, " ")
-        .replace(/&\w+;/g, "")
-        .replace(/\s+/g, " ")
-        .trim();
-
-      // Filter: the context around the link must contain drug keywords
-      // (wider context than the old per-title check)
-      if (!hasDrugKeyword(context)) continue;
-      seen.add(cleanHref);
-
-      // Extract a reasonable title: first 15-120 chars of cleaned context
-      const title = context.length > 15 ? context.substring(0, 120).trim() : context;
-
-      results.push({ title, link: cleanUrl, snippet: context.substring(0, 300), date: "" });
-    }
-
-    return results;
-  } catch (err: any) {
-    const status = err?.response?.status || "network";
-    const msg = err?.code || String(err).substring(0, 80);
-    console.error(`[Scraper] ${config.name} direct search FAILED (status=${status}, err=${msg})`);
-    return [];
-  }
-}
-
-async function searchAllSitesDirectly(): Promise<SerperResult[]> {
-  const allResults: SerperResult[] = [];
-  const queries = [
-    "хар тамхи",
-    "мансууруулах бодис",
-    "наркотик",
-    "фентанил",
-    "психотроп",
-    "каннабис",
-    "марихуана",
-    "кокаин",
-    "метамфетамин",
-    "гашиш",
-    "КНБ",
-    "анага бодис",
-    "drug trafficking",
-    "narcotic smuggling",
-  ];
-
-  // Search a subset of queries per site to avoid overwhelming
-  for (const config of SITE_SEARCH_CONFIGS) {
-    const queryBatch = queries.slice(0, 5).join(" OR ");
-    const results = await searchSiteDirectly(config, queryBatch);
-    console.log(`[Scraper] ${config.name} direct search → ${results.length} results`);
-    allResults.push(...results);
-  }
-
-  return allResults;
 }
 
 // ── RSS Feed parsing ────────────────────────────────────────────────────────
@@ -683,7 +551,7 @@ export async function scrapeAllSites(): Promise<ScrapedArticle[]> {
   console.log(`[Scraper] Total unique articles: ${allRaw.length}. Fetching content + dates...`);
 
   // Fetch full content + real publication dates for top articles
-  const topResults = allRaw.slice(0, 60);
+  const topResults = allRaw.slice(0, 120);
   const pageResults = await Promise.allSettled(
     topResults.map((r) => fetchArticlePage(r.link))
   );
@@ -732,4 +600,4 @@ export async function scrapeAllSites(): Promise<ScrapedArticle[]> {
   return articles;
 }
 
-export { hasDrugKeyword, DRUG_KEYWORDS_MN, DRUG_KEYWORDS_EN, DRUG_KEYWORDS_ZH, searchWithSerper, searchWithScrapingbee, searchAllSitesDirectly, fetchAllRSS };
+export { hasDrugKeyword, DRUG_KEYWORDS_MN, DRUG_KEYWORDS_EN, DRUG_KEYWORDS_ZH, searchWithSerper, searchWithScrapingbee, fetchAllRSS };

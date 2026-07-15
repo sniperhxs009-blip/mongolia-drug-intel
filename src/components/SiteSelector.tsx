@@ -52,8 +52,6 @@ export default function SiteSelector({ selectedCategories, onChange }: SiteSelec
         return <Newspaper className="w-4 h-4 text-slate-600" />;
       case 'international':
         return <Globe className="w-4 h-4 text-slate-600" />;
-      case 'china':
-        return <Shield className="w-4 h-4 text-emerald-600" />;
       default:
         return <Globe className="w-4 h-4 text-slate-600" />;
     }
@@ -69,7 +67,7 @@ export default function SiteSelector({ selectedCategories, onChange }: SiteSelec
             监测信源管控范围 (Surveillance Perimeter)
           </h2>
           <span className="bg-slate-200 text-slate-700 text-xs px-2.5 py-0.5 rounded-full font-medium">
-            监测中: {selectedCategories.length === 0 ? '全部 22' : `${TARGET_SITES.filter(s => selectedCategories.includes(s.category)).length}`} 个站点
+            监测中: {selectedCategories.length === 0 ? '全部 19' : `${TARGET_SITES.filter(s => selectedCategories.includes(s.category)).length}`} 个站点
           </span>
         </div>
 
