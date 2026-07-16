@@ -1417,9 +1417,78 @@ def quick_parse(site, url, session=None):
                     parts = d.split(".")
                     if len(parts) == 3:
                         date = f"{parts[2]}-{parts[1]}-{parts[0]}"
+                elif site["date_format"] == "text":
+                    try:
+                        date = datetime.strptime(d, "%d %B %Y").strftime("%Y-%m-%d")
+                    except ValueError:
+                        try:
+                            date = datetime.strptime(d, "%d %b %Y").strftime("%Y-%m-%d")
+                        except ValueError:
+                            pass
                 break
         if date:
             break
+
+    # Generic fallback: try common date patterns if site-specific ones failed
+    if not date:
+        for pattern in [
+            r"(\d{4}-\d{2}-\d{2})",           # 2026-07-15
+            r"(\d{4}\.\d{2}\.\d{2})",          # 2026.07.15
+            r"(\d{4}/\d{2}/\d{2})",            # 2026/07/15
+            r"(\d{2}\.\d{2}\.\d{4})",           # 15.07.2026
+            r"(\d{2}/\d{2}/\d{4})",             # 15/07/2026
+            r"(\d{1,2}\s+\w+\s+\d{4})",         # 15 July 2026
+        ]:
+            m = re.search(pattern, text)
+            if m:
+                d = m.group(1)
+                if "-" in d and d[2] == "-":   # DD-MM-YYYY
+                    parts = d.split("-")
+                    if len(parts) == 3 and len(parts[0]) == 2:
+                        date = f"{parts[2]}-{parts[1]}-{parts[0]}"
+                elif "." in d and len(d.split(".")[0]) == 2:  # DD.MM.YYYY
+                    parts = d.split(".")
+                    if len(parts) == 3:
+                        date = f"{parts[2]}-{parts[1]}-{parts[0]}"
+                elif "." in d:                  # YYYY.MM.DD
+                    date = d.replace(".", "-")
+                elif "/" in d and d[2] == "/":  # DD/MM/YYYY
+                    parts = d.split("/")
+                    if len(parts) == 3 and len(parts[0]) == 2:
+                        date = f"{parts[2]}-{parts[1]}-{parts[0]}"
+                elif "/" in d:                  # YYYY/MM/DD
+                    date = d.replace("/", "-")
+                elif " " in d:                  # text date "15 July 2026"
+                    try:
+                        date = datetime.strptime(d, "%d %B %Y").strftime("%Y-%m-%d")
+                    except ValueError:
+                        try:
+                            date = datetime.strptime(d, "%d %b %Y").strftime("%Y-%m-%d")
+                        except ValueError:
+                            pass
+                else:
+                    date = d  # YYYY-MM-DD
+                break
+
+    # Mongolian date fallback: "2026 оны 7 дугаар сарын 15" or "2026 оны долдугаар сарын 14"
+    if not date:
+        mn_months = {
+            "нэгдүгээр": "01", "хоёрдугаар": "02", "гуравдугаар": "03",
+            "дөрөвдүгээр": "04", "тавдугаар": "05", "зургаадугаар": "06",
+            "долдугаар": "07", "долоодугаар": "07", "наймдугаар": "08",
+            "есдүгээр": "09", "аравдугаар": "10",
+            "арван нэгдүгээр": "11", "арван хоёрдугаар": "12",
+        }
+        m = re.search(r'(\d{4})\s*оны\s*(\d{1,2})\s*(?:дугаар|дүгээр|-р)\s*сарын\s*(\d{1,2})', text)
+        if m:
+            date = f"{m.group(1)}-{m.group(2).zfill(2)}-{m.group(3).zfill(2)}"
+        else:
+            mn_names = "|".join(mn_months.keys())
+            m = re.search(rf'(\d{{4}})\s*оны\s*({mn_names})\s*сарын\s*(\d{{1,2}})', text)
+            if m:
+                mn = mn_months.get(m.group(2).lower(), "")
+                if mn:
+                    date = f"{m.group(1)}-{mn}-{m.group(3).zfill(2)}"
 
     content_parts = []
     if sel.get("content"):

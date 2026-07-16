@@ -176,7 +176,7 @@ SITES = [
         "article_url": "https://www.unodc.org{path}",
         "list_selectors": {
             "article_links": "a[href*='/frontpage/'], a[href*='/news/'], a[href*='/press/']",
-            "link_pattern": r"(/unodc/\S+\.html)",
+            "link_pattern": r"(/unodc/(?!.*frontpage)(?!.*index\.html)\S+\.html)",
             "date_nearby_selector": ".date, time, .field-date",
         },
         "article_selectors": {
