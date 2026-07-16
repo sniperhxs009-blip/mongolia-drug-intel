@@ -517,6 +517,41 @@ body {
 @keyframes spin { to { transform: rotate(360deg); } }
 .loading p { color: var(--text-secondary); font-size: 13px; }
 
+/* Loading overlay */
+.loading-overlay {
+  display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(6, 11, 20, 0.85); backdrop-filter: blur(4px);
+  z-index: 9999; flex-direction: column; align-items: center; justify-content: center;
+}
+.loading-overlay.show { display: flex; }
+.loading-overlay .spinner-ring {
+  width: 50px; height: 50px;
+  border: 3px solid rgba(56, 189, 248, 0.15);
+  border-top-color: #38bdf8;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.loading-overlay .loading-msg {
+  color: #e2e8f0; font-size: 16px; font-weight: 600; margin-top: 20px;
+}
+.loading-overlay .loading-sub {
+  color: #64748b; font-size: 12px; margin-top: 6px;
+}
+.loading-overlay .loading-bar-wrap {
+  width: 280px; height: 3px; background: rgba(56, 189, 248, 0.1);
+  border-radius: 2px; margin-top: 24px; overflow: hidden;
+}
+.loading-overlay .loading-bar-inner {
+  height: 100%; width: 30%; background: linear-gradient(90deg, #38bdf8, #818cf8);
+  border-radius: 2px;
+  animation: loadingSlide 1.5s ease-in-out infinite;
+}
+@keyframes loadingSlide {
+  0% { width: 0%; margin-left: 0; }
+  50% { width: 60%; margin-left: 20%; }
+  100% { width: 0%; margin-left: 100%; }
+}
+
 /* Pagination */
 .pagination { display: flex; justify-content: center; gap: 8px; margin-top: 24px; }
 .pagination a {
@@ -699,6 +734,37 @@ body {
 <script>
 let liveEventSource = null;
 let liveArticleCount = 0;
+
+// Loading overlay for search/filter buttons
+(function() {
+  const overlay = document.getElementById('loading-overlay');
+  const msg = document.getElementById('loading-msg');
+  const form = document.querySelector('.search-box');
+
+  if (form && overlay) {
+    form.addEventListener('submit', function(e) {
+      const btn = e.submitter;
+      if (!btn || btn.id === 'btn-live') return; // skip live fetch button
+      const action = btn.value || '';
+      const labels = {
+        'drugs': '正在搜索毒品相关新闻...',
+        'ai_drugs': 'AI 正在深度分析识别毒品新闻...',
+        'global': '正在全球互联网搜索蒙古毒品情报...',
+      };
+      msg.textContent = labels[action] || '正在加载...';
+      overlay.classList.add('show');
+    });
+
+    // Source filter change
+    const sourceSelect = form.querySelector('select[name="source"]');
+    if (sourceSelect) {
+      sourceSelect.addEventListener('change', function() {
+        msg.textContent = '正在筛选...';
+        overlay.classList.add('show');
+      });
+    }
+  }
+})();
 
 function startLiveFetch() {
   // Reset
@@ -915,6 +981,14 @@ body {
 <div class="bg-orb bg-orb-1"></div>
 <div class="bg-orb bg-orb-2"></div>
 <div class="scan-line"></div>
+
+<!-- Loading Overlay -->
+<div id="loading-overlay" class="loading-overlay">
+  <div class="spinner-ring"></div>
+  <div id="loading-msg" class="loading-msg">正在处理...</div>
+  <div class="loading-sub">请稍候</div>
+  <div class="loading-bar-wrap"><div class="loading-bar-inner"></div></div>
+</div>
 
 <div class="header">
   <h1>蒙古国毒品新闻搜集研判系统</h1>
