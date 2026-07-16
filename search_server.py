@@ -1478,6 +1478,10 @@ def index():
 def api_health():
     """Health check for Render Cron keep-alive + trigger crawl if needed."""
     init_db()
+    # Ensure auto-crawler is running (gunicorn doesn't call main())
+    if not _auto_crawler["running"]:
+        t = threading.Thread(target=_auto_crawl_loop, daemon=True, name="auto-crawler")
+        t.start()
     conn = get_conn()
     total = conn.execute("SELECT COUNT(*) FROM articles").fetchone()[0]
     conn.close()
