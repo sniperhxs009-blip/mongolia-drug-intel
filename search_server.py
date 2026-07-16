@@ -744,7 +744,8 @@ let liveArticleCount = 0;
   if (form && overlay) {
     form.addEventListener('submit', function(e) {
       const btn = e.submitter;
-      if (!btn || btn.id === 'btn-live') return; // skip live fetch button
+      if (!btn || btn.id === 'btn-live') return;
+      e.preventDefault();
       const action = btn.value || '';
       const labels = {
         'drugs': '正在搜索毒品相关新闻...',
@@ -753,14 +754,28 @@ let liveArticleCount = 0;
       };
       msg.textContent = labels[action] || '正在加载...';
       overlay.classList.add('show');
+      requestAnimationFrame(function() {
+        setTimeout(function() {
+          var hidden = document.createElement('input');
+          hidden.type = 'hidden';
+          hidden.name = 'action';
+          hidden.value = action;
+          form.appendChild(hidden);
+          form.submit();
+        }, 80);
+      });
     });
 
     // Source filter change
     const sourceSelect = form.querySelector('select[name="source"]');
     if (sourceSelect) {
-      sourceSelect.addEventListener('change', function() {
+      sourceSelect.addEventListener('change', function(e) {
+        e.preventDefault();
         msg.textContent = '正在筛选...';
         overlay.classList.add('show');
+        requestAnimationFrame(function() {
+          setTimeout(function() { form.submit(); }, 80);
+        });
       });
     }
   }
