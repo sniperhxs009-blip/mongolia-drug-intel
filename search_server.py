@@ -1647,14 +1647,14 @@ def index():
         # Drug-related news filter (all time, no date limit)
         keywords = get_all_keywords()
         sf = source_filter if source_filter else None
-        results, count = search_drug_articles(keywords, source=sf, limit=200, months=None)
+        results, count = search_drug_articles(keywords, source=sf, limit=200, months=3)
         results = results[offset:offset + per_page]
         query = "[毒品新闻筛选]"
     elif action == "ai_drugs":
         # AI-enhanced drug news screening
         keywords = get_all_keywords()
         sf = source_filter if source_filter else None
-        results, count = search_drug_articles_ai(keywords, source=sf, limit=200, months=None)
+        results, count = search_drug_articles_ai(keywords, source=sf, limit=200, months=3)
         results = results[offset:offset + per_page]
         query = "[AI 智能毒品扫描]"
     elif action == "global":
