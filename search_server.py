@@ -559,7 +559,7 @@ body {
 
 <div class="header">
   <h1>蒙古国毒品新闻搜集研判系统</h1>
-  <p class="subtitle">AI 驱动的蒙古毒品情报多源搜索系统  ·  <span>{{ stats.total }}</span> 条情报索引</p>
+  <p class="subtitle">AI 驱动的蒙古毒品情报多源搜索系统</p>
 </div>
 
 <div class="container">
@@ -589,16 +589,9 @@ body {
       </div>
     </div>
     <div class="stat-card">
-      <div class="stat-icon green">📰</div>
-      <div>
-        <div class="stat-value">{{ stats.total }}</div>
-        <div class="stat-label">数据库总量</div>
-      </div>
-    </div>
-    <div class="stat-card">
       <div class="stat-icon purple">🔍</div>
       <div>
-        <div class="stat-value">{{ stats.sources|length if stats.sources else 0 }}</div>
+        <div class="stat-value">{{ all_sources|length }}</div>
         <div class="stat-label">监控来源</div>
       </div>
     </div>
