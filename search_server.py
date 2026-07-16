@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template_string, jsonify, redirect
+from flask import Flask, request, render_template_string, jsonify, redirect, Response
 from db import init_db, search_by_date, get_stats, article_exists_by_url, insert_article, get_conn, search_drug_articles, search_drug_articles_ai
 from db import get_email_recipients, add_email_recipient, remove_email_recipient, toggle_email_recipient
 from db import get_smtp_config, save_smtp_config, get_push_schedules, save_push_schedule, delete_push_schedule, get_next_push_time
@@ -343,6 +343,10 @@ body {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.6; }
 }
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
 /* Header */
 .header {
@@ -569,7 +573,7 @@ body {
     </select>
     <input type="hidden" name="page" value="1">
     <button type="submit" name="action" value="search" class="btn btn-search">搜索数据库</button>
-    <button type="submit" name="action" value="live" class="btn btn-live">实时抓取</button>
+    <button type="button" id="btn-live" class="btn btn-live" onclick="startLiveFetch()">实时抓取</button>
     <button type="submit" name="action" value="drugs" class="btn btn-drugs">毒品新闻</button>
     <button type="submit" name="action" value="ai_drugs" class="btn btn-ai" title="AI 深度学习智能识别毒品相关新闻">AI 智能扫描</button>
     <button type="submit" name="action" value="global" class="btn btn-global" title="从全球互联网搜索蒙古毒品相关新闻">🌐 全球搜索</button>
@@ -628,6 +632,22 @@ body {
   </div>
   {% endif %}
 
+  <!-- Live Fetch Progress -->
+  <div id="live-progress" style="display:none;margin:20px 0;padding:16px 20px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div id="live-spinner" style="width:20px;height:20px;border:2px solid rgba(56,189,248,0.2);border-top-color:#38bdf8;border-radius:50%;animation:spin 0.8s linear infinite;"></div>
+      <div>
+        <span id="live-status" style="color:#38bdf8;font-weight:600;">正在连接...</span>
+        <span id="live-count" style="color:var(--text-secondary);margin-left:8px;font-size:13px;"></span>
+      </div>
+      <button type="button" onclick="stopLiveFetch()" style="margin-left:auto;background:rgba(239,68,68,0.1);color:#f87171;border:1px solid rgba(239,68,68,0.2);border-radius:6px;padding:4px 12px;cursor:pointer;font-size:12px;">停止</button>
+    </div>
+  </div>
+  <style>@keyframes spin { to { transform:rotate(360deg); } }</style>
+
+  <!-- Live Results Container -->
+  <div id="live-results" style="display:none;"></div>
+
   {% if loading %}
   <div class="loading">
     <div class="loading-spinner"></div>
@@ -684,6 +704,101 @@ body {
   </div>
   {% endif %}
 </div>
+
+<script>
+let liveEventSource = null;
+let liveArticleCount = 0;
+
+function startLiveFetch() {
+  // Reset
+  liveArticleCount = 0;
+  document.getElementById('live-results').innerHTML = '';
+  document.getElementById('live-results').style.display = 'block';
+  document.getElementById('live-progress').style.display = 'block';
+  document.getElementById('live-status').textContent = '正在连接...';
+  document.getElementById('live-count').textContent = '';
+  document.getElementById('btn-live').disabled = true;
+
+  // Hide static results if any
+  const staticResults = document.querySelector('.results');
+  if (staticResults) staticResults.style.display = 'none';
+
+  liveEventSource = new EventSource('/api/live-stream');
+
+  liveEventSource.addEventListener('site_start', function(e) {
+    const data = JSON.parse(e.data);
+    document.getElementById('live-status').textContent = '正在抓取: ' + data.site;
+  });
+
+  liveEventSource.addEventListener('site_error', function(e) {
+    const data = JSON.parse(e.data);
+    console.log('Site error:', data.site, data.error);
+  });
+
+  liveEventSource.addEventListener('site_done', function(e) {
+    const data = JSON.parse(e.data);
+    document.getElementById('live-count').textContent = '已抓取 ' + liveArticleCount + ' 条';
+  });
+
+  liveEventSource.addEventListener('done', function(e) {
+    const data = JSON.parse(e.data);
+    document.getElementById('live-status').textContent = '抓取完成';
+    document.getElementById('live-count').textContent = '共 ' + data.total + ' 条新闻';
+    document.getElementById('live-spinner').style.display = 'none';
+    document.getElementById('btn-live').disabled = false;
+    liveEventSource.close();
+    liveEventSource = null;
+  });
+
+  liveEventSource.onmessage = function(e) {
+    const art = JSON.parse(e.data);
+    liveArticleCount++;
+    document.getElementById('live-count').textContent = '已抓取 ' + liveArticleCount + ' 条';
+    appendArticleCard(art);
+  };
+
+  liveEventSource.onerror = function(e) {
+    if (liveEventSource && liveEventSource.readyState === EventSource.CLOSED) {
+      document.getElementById('live-status').textContent = '连接中断';
+      document.getElementById('live-spinner').style.display = 'none';
+      document.getElementById('btn-live').disabled = false;
+    }
+  };
+}
+
+function stopLiveFetch() {
+  if (liveEventSource) {
+    liveEventSource.close();
+    liveEventSource = null;
+  }
+  document.getElementById('live-status').textContent = '已停止';
+  document.getElementById('live-spinner').style.display = 'none';
+  document.getElementById('btn-live').disabled = false;
+}
+
+function appendArticleCard(art) {
+  const container = document.getElementById('live-results');
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.style.animation = 'fadeIn 0.3s ease';
+
+  const date = art.date || '';
+  const sourceLabel = art.source_label || art.source || '';
+  const content = (art.content || '').substring(0, 250);
+  const more = (art.content || '').length > 250 ? '...' : '';
+
+  card.innerHTML =
+    '<h3><a href="' + art.url + '" target="_blank">' + (art.title || '') + '</a></h3>' +
+    '<div class="meta">' +
+      '<span class="pub-date">' + date + '</span>' +
+      '<span class="source-tag" style="background:rgba(56,189,248,0.1);color:#38bdf8">' + sourceLabel + '</span>' +
+    '</div>' +
+    '<div class="snippet">' + content + more + '</div>';
+
+  container.insertBefore(card, container.firstChild);
+}
+</script>
+
 </body>
 </html>
 """
@@ -1518,6 +1633,98 @@ def api_health():
         "last_crawl": _auto_crawler["last_crawl"].isoformat() if _auto_crawler["last_crawl"] else None,
         "interval_minutes": _auto_crawler["interval_minutes"],
     })
+
+
+# ===================== Live Stream (SSE) =====================
+
+@app.route("/api/live-stream")
+def api_live_stream():
+    """SSE endpoint: streams articles in real-time as each site is fetched."""
+    source_filter = request.args.get("source", "")
+    target = [s for s in SITES if s["name"] == source_filter] if source_filter else SITES
+
+    def generate():
+        import json as _json
+        total = 0
+        for site in target:
+            if site.get("requires_js"):
+                continue
+            label = site.get("label", site["name"])
+            yield f"event: site_start\ndata: {_json.dumps({'site': label})}\n\n"
+
+            try:
+                resp = http_session.get(site["home"], timeout=20, allow_redirects=True,
+                                       verify=site.get("ssl_verify", True))
+                if resp.status_code != 200:
+                    yield f"event: site_error\ndata: {_json.dumps({'site': label, 'error': f'HTTP {resp.status_code}'})}\n\n"
+                    continue
+            except Exception as e:
+                yield f"event: site_error\ndata: {_json.dumps({'site': label, 'error': str(e)})}\n\n"
+                continue
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+            sel = site["list_selectors"]
+            conn = get_conn()
+            seen = set()
+            site_count = 0
+
+            for a in soup.select(sel["article_links"]):
+                href = a.get("href", "")
+                m = re.search(sel["link_pattern"], href)
+                if not m:
+                    continue
+                identifier = m.group(1)
+
+                if "article_url" in site:
+                    art_url = site["article_url"]
+                    fmt_kwargs = {"id": identifier, "slug": identifier, "path": identifier}
+                    used = {k: v for k, v in fmt_kwargs.items() if "{" + k + "}" in art_url}
+                    art_url = art_url.format(**used)
+                else:
+                    art_url = href if href.startswith("http") else f"https://{site['name']}{href}"
+
+                if art_url in seen:
+                    continue
+                seen.add(art_url)
+
+                # Check DB
+                row = conn.execute("SELECT * FROM articles WHERE url=?", (art_url,)).fetchone()
+                if row:
+                    art = dict(row)
+                else:
+                    art = quick_parse(site, art_url)
+                    if art and art.get("title"):
+                        insert_article(art)
+                    else:
+                        continue
+
+                art["source_label"] = label
+                art["source"] = site["name"]
+                site_count += 1
+                total += 1
+
+                # Serialize datetime objects for JSON
+                art_json = {}
+                for k, v in art.items():
+                    art_json[k] = v.isoformat() if hasattr(v, "isoformat") else str(v) if v is not None else ""
+                yield f"data: {_json.dumps(art_json, ensure_ascii=False)}\n\n"
+                time.sleep(0.05)
+
+            conn.close()
+            yield f"event: site_done\ndata: {_json.dumps({'site': label, 'count': site_count})}\n\n"
+            time.sleep(0.3)
+
+        yield f"event: done\ndata: {_json.dumps({'total': total})}\n\n"
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        }
+    )
 
 
 # ===================== Report Routes =====================
