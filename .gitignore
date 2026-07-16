@@ -23,6 +23,12 @@ setup_email.py
 *.swp
 *.swo
 
+# Node
+node_modules/
+
+# Coverage
+coverage/
+
 # OS
 .DS_Store
 Thumbs.db

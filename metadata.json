@@ -1,0 +1,6 @@
+{
+  "name": "Mongolia Drug News Monitoring System",
+  "description": "A real-time search, monitoring, and analysis intelligence system for drug-related news in Mongolia, powered by Gemini Search Grounding.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
