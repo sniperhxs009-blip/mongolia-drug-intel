@@ -1,0 +1,16 @@
+name: Render Keep-Alive
+
+on:
+  schedule:
+    - cron: "*/14 * * * *"  # Every 14 minutes
+  workflow_dispatch:        # Allow manual trigger
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render health check
+        run: |
+          curl -sf https://mongolia-drug-intel.onrender.com/api/health || echo "Ping failed (may be waking up)"
+          sleep 2
+          curl -sf https://mongolia-drug-intel.onrender.com/api/health || echo "Retry failed"
