@@ -10,6 +10,7 @@ import requests
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_API_BASE = "https://api.deepseek.com/v1"
 DEEPSEEK_MODEL = "deepseek-chat"
+TRANSLATE_PROXY = os.environ.get("TRANSLATE_PROXY", os.environ.get("HTTPS_PROXY", os.environ.get("HTTP_PROXY", "")))
 
 _translation_cache = {}
 
@@ -104,6 +105,9 @@ def _translate_chunk(chunk, results):
     )
 
     try:
+        kwargs = {}
+        if TRANSLATE_PROXY:
+            kwargs["proxies"] = {"https": TRANSLATE_PROXY, "http": TRANSLATE_PROXY}
         resp = requests.post(
             f"{DEEPSEEK_API_BASE}/chat/completions",
             headers={
@@ -117,6 +121,7 @@ def _translate_chunk(chunk, results):
                 "max_tokens": 4096,
             },
             timeout=45,
+            **kwargs,
         )
 
         if resp.status_code == 200:

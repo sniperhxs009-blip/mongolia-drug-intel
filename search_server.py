@@ -84,12 +84,6 @@ def _auto_crawl_loop():
     # Wait 30s for server to finish starting before first crawl
     time.sleep(30)
 
-    # Translate any existing articles that aren't yet in Chinese
-    try:
-        _translate_existing_articles()
-    except Exception:
-        pass
-
     # Dedicated session for auto-crawler (avoids sharing with Flask request thread)
     session = requests.Session()
     session.headers.update(HEADERS)
@@ -253,17 +247,11 @@ def _crawl_site(site, session):
         # Fetch new article
         art = quick_parse(site, art_url, session)
         if art and art["title"]:
+            insert_article(art)
             articles.append(art)
             fetched += 1
 
         time.sleep(0.15)
-
-    # Batch translate new articles before inserting into DB
-    new_arts = articles[-fetched:] if fetched else []
-    if new_arts:
-        translate_articles_batch(new_arts)
-        for art in new_arts:
-            insert_article(art)
 
     conn.close()
     return articles, fetched
@@ -273,7 +261,7 @@ TEMPLATE = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mongolia Drug Intelligence</title>
+<title>蒙古国毒品新闻搜集研判系统</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
@@ -566,7 +554,7 @@ body {
 </div>
 
 <div class="header">
-  <h1>Mongolia Drug Intelligence</h1>
+  <h1>蒙古国毒品新闻搜集研判系统</h1>
   <p class="subtitle">AI 驱动的蒙古毒品情报多源搜索系统  ·  <span>{{ stats.total }}</span> 条情报索引</p>
 </div>
 
@@ -705,7 +693,7 @@ REPORT_PAGE = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>情报研判报告 - Mongolia Drug Intelligence</title>
+<title>情报研判报告 - 蒙古国毒品新闻搜集研判系统</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
@@ -823,7 +811,7 @@ body {
 <div class="scan-line"></div>
 
 <div class="header">
-  <h1>Mongolia Drug Intelligence</h1>
+  <h1>蒙古国毒品新闻搜集研判系统</h1>
 </div>
 
 <div class="container">
@@ -878,7 +866,7 @@ SETTINGS_PAGE = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>系统设置 - Mongolia Drug Intelligence</title>
+<title>系统设置 - 蒙古国毒品新闻搜集研判系统</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
@@ -1407,17 +1395,11 @@ def live_fetch_site(site, max_arts=30):
         # Not in DB - fetch from web
         art = quick_parse(site, art_url)
         if art and art["title"]:
+            insert_article(art)
             articles.append(art)
             fetched += 1
 
         time.sleep(0.15)
-
-    # Batch translate new articles before inserting into DB
-    new_arts = articles[-fetched:] if fetched else []
-    if new_arts:
-        translate_articles_batch(new_arts)
-        for art in new_arts:
-            insert_article(art)
 
     conn.close()
     # Sort by date
