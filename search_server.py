@@ -592,6 +592,14 @@ body {
   <div class="progress-bar-fill {{ 'active' if loading else '' }}" style="width: {{ progress }}%"></div>
 </div>
 
+<!-- Loading Overlay -->
+<div id="loading-overlay" class="loading-overlay show">
+  <div class="spinner-ring"></div>
+  <div id="loading-msg" class="loading-msg">正在处理...</div>
+  <div class="loading-sub">请稍候</div>
+  <div class="loading-bar-wrap"><div class="loading-bar-inner"></div></div>
+</div>
+
 <div class="header">
   <h1>蒙古国毒品新闻搜集研判系统</h1>
   <p class="subtitle">AI 驱动的蒙古毒品情报多源搜索系统</p>
@@ -599,7 +607,7 @@ body {
 
 <div class="container">
   <form class="search-box" method="GET">
-    <select name="source" onchange="this.form.submit()">
+    <select name="source" id="source-select">
       <option value="">全部来源</option>
       {% for s in all_sources %}
       <option value="{{ s.name }}" {% if current_source==s.name %}selected{% endif %}>{{ s.label }}</option>
@@ -739,45 +747,61 @@ let liveArticleCount = 0;
 (function() {
   const overlay = document.getElementById('loading-overlay');
   const msg = document.getElementById('loading-msg');
-  const form = document.querySelector('.search-box');
+  // Set message based on current action
+  const params = new URLSearchParams(window.location.search);
+  const action = params.get('action') || '';
+  const labels = {
+    'drugs': '正在搜索毒品相关新闻...',
+    'ai_drugs': 'AI 正在深度分析识别毒品新闻...',
+    'global': '正在全球互联网搜索蒙古毒品情报...',
+  };
+  if (labels[action]) {
+    msg.textContent = labels[action];
+  }
 
-  if (form && overlay) {
+  // Hide overlay when page is fully loaded
+  function hideOverlay() {
+    overlay.classList.remove('show');
+  }
+  if (document.readyState === 'complete') {
+    hideOverlay();
+  } else {
+    window.addEventListener('load', hideOverlay);
+  }
+
+  // Show overlay on form submit - force render before navigating
+  var form = document.querySelector('.search-box');
+  if (form) {
     form.addEventListener('submit', function(e) {
-      const btn = e.submitter;
+      var btn = e.submitter;
       if (!btn || btn.id === 'btn-live') return;
       e.preventDefault();
-      const action = btn.value || '';
-      const labels = {
-        'drugs': '正在搜索毒品相关新闻...',
-        'ai_drugs': 'AI 正在深度分析识别毒品新闻...',
-        'global': '正在全球互联网搜索蒙古毒品情报...',
-      };
-      msg.textContent = labels[action] || '正在加载...';
+      if (btn.value) {
+        msg.textContent = labels[btn.value] || '正在加载...';
+      }
       overlay.classList.add('show');
+      // Force browser to render the overlay before submitting
       requestAnimationFrame(function() {
-        setTimeout(function() {
-          var hidden = document.createElement('input');
-          hidden.type = 'hidden';
-          hidden.name = 'action';
-          hidden.value = action;
-          form.appendChild(hidden);
-          form.submit();
-        }, 80);
-      });
-    });
-
-    // Source filter change
-    const sourceSelect = form.querySelector('select[name="source"]');
-    if (sourceSelect) {
-      sourceSelect.addEventListener('change', function(e) {
-        e.preventDefault();
-        msg.textContent = '正在筛选...';
-        overlay.classList.add('show');
         requestAnimationFrame(function() {
-          setTimeout(function() { form.submit(); }, 80);
+          var input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = 'action';
+          input.value = btn.value;
+          form.appendChild(input);
+          form.submit();
         });
       });
-    }
+    });
+  }
+
+  // Source filter change
+  var sourceSelect = document.getElementById('source-select');
+  if (sourceSelect) {
+    sourceSelect.addEventListener('change', function() {
+      msg.textContent = '正在筛选...';
+      overlay.classList.add('show');
+      this.form.submit();
+    });
   }
 })();
 
@@ -998,7 +1022,7 @@ body {
 <div class="scan-line"></div>
 
 <!-- Loading Overlay -->
-<div id="loading-overlay" class="loading-overlay">
+<div id="loading-overlay" class="loading-overlay show">
   <div class="spinner-ring"></div>
   <div id="loading-msg" class="loading-msg">正在处理...</div>
   <div class="loading-sub">请稍候</div>
