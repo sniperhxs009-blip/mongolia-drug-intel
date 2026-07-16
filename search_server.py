@@ -564,15 +564,13 @@ body {
 
 <div class="container">
   <form class="search-box" method="GET">
-    <input type="text" name="q" value="{{ query }}" placeholder="搜索关键词，或留空查看最新情报..." autofocus>
-    <select name="source">
+    <select name="source" onchange="this.form.submit()">
       <option value="">全部来源</option>
       {% for s in all_sources %}
       <option value="{{ s.name }}" {% if current_source==s.name %}selected{% endif %}>{{ s.label }}</option>
       {% endfor %}
     </select>
     <input type="hidden" name="page" value="1">
-    <button type="submit" name="action" value="search" class="btn btn-search">搜索数据库</button>
     <button type="button" id="btn-live" class="btn btn-live" onclick="startLiveFetch()">实时抓取</button>
     <button type="submit" name="action" value="drugs" class="btn btn-drugs">毒品新闻</button>
     <button type="submit" name="action" value="ai_drugs" class="btn btn-ai" title="AI 深度学习智能识别毒品相关新闻">AI 智能扫描</button>
@@ -684,11 +682,11 @@ body {
 
   <div class="pagination">
     {% if page > 1 %}
-    <a href="?q={{ query }}&source={{ current_source or '' }}&page={{ page - 1 }}&action={{ request.args.get('action','search') }}">← 上一页</a>
+    <a href="?source={{ current_source or '' }}&page={{ page - 1 }}&action={{ request.args.get('action','') }}">← 上一页</a>
     {% endif %}
     <span class="active">第 {{ page }} 页</span>
     {% if page * per_page < total_results %}
-    <a href="?q={{ query }}&source={{ current_source or '' }}&page={{ page + 1 }}&action={{ request.args.get('action','search') }}">下一页 →</a>
+    <a href="?source={{ current_source or '' }}&page={{ page + 1 }}&action={{ request.args.get('action','') }}">下一页 →</a>
     {% endif %}
   </div>
 
@@ -700,7 +698,7 @@ body {
   {% else %}
   <div class="empty">
     <div class="icon">🛰️</div>
-    <p>点击<strong>搜索数据库</strong>浏览情报，或点击<strong>实时抓取</strong>获取最新数据</p>
+    <p>点击<strong>实时抓取</strong>按钮获取最新情报（近3个月）</p>
   </div>
   {% endif %}
 </div>
@@ -1343,6 +1341,22 @@ def translate_results(results):
             r["content"] = translated[i * 2 + 1] if i * 2 + 1 < len(translated) else snippet[:200]
 
 
+def _is_within_months(date_str, months=3):
+    """Check if a date string is within the given number of months from now."""
+    if not date_str:
+        return True
+    try:
+        s = str(date_str)[:10].replace(".", "-")
+        m = re.match(r"(\d{4})-(\d{2})-(\d{2})", s)
+        if not m:
+            return True  # Can't parse, include it
+        dt = datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        cutoff = datetime.now() - timedelta(days=months * 30)
+        return dt >= cutoff
+    except Exception:
+        return True
+
+
 def quick_parse(site, url, session=None):
     """Quick parse for live fetch - extract title, date from an article page."""
     s = session or http_session
@@ -1453,10 +1467,9 @@ def quick_parse(site, url, session=None):
     }
 
 
-def live_fetch_site(site, max_arts=30):
-    """Live fetch latest articles from a single site's homepage.
-    Returns articles from DB if already stored, or fetches new ones.
-    Always shows what's currently on the site's homepage."""
+def live_fetch_site(site, max_arts=30, months=3):
+    """Live fetch latest articles from a single site's homepage (last N months only).
+    Returns articles from DB if already stored, or fetches new ones."""
     if site.get("requires_js"):
         return [], 0
 
@@ -1504,15 +1517,18 @@ def live_fetch_site(site, max_arts=30):
             "SELECT * FROM articles WHERE url=?", (art_url,)
         ).fetchone()
         if row:
-            articles.append(dict(row))
+            d = dict(row)
+            if _is_within_months(d.get("date"), months):
+                articles.append(d)
             continue
 
         # Not in DB - fetch from web
         art = quick_parse(site, art_url)
         if art and art["title"]:
-            insert_article(art)
-            articles.append(art)
-            fetched += 1
+            if _is_within_months(art.get("date"), months):
+                insert_article(art)
+                articles.append(art)
+                fetched += 1
 
         time.sleep(0.15)
 
@@ -1572,9 +1588,9 @@ def index():
         results = results[offset:offset + per_page]
         query = "[全球毒品搜索]"
     else:
-        # Search DB (last 6 months)
+        # Default: show recent articles from last 3 months
         sf = source_filter if source_filter else None
-        results, count = search_by_date(query, source=sf, limit=200, months=6)
+        results, count = search_by_date("", source=sf, limit=200, months=3)
         results = results[offset:offset + per_page]
 
     # Build color maps
@@ -1697,6 +1713,10 @@ def api_live_stream():
                         insert_article(art)
                     else:
                         continue
+
+                # Filter: only articles within last 3 months
+                if not _is_within_months(art.get("date"), 3):
+                    continue
 
                 art["source_label"] = label
                 art["source"] = site["name"]
