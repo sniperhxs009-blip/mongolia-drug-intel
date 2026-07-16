@@ -1342,19 +1342,32 @@ def translate_results(results):
 
 
 def _is_within_months(date_str, months=3):
-    """Check if a date string is within the given number of months from now."""
+    """Check if a date string is within the given number of months from now.
+    Returns False for empty, unparseable, or out-of-range dates."""
     if not date_str:
-        return True
+        return False
     try:
-        s = str(date_str)[:10].replace(".", "-")
-        m = re.match(r"(\d{4})-(\d{2})-(\d{2})", s)
-        if not m:
-            return True  # Can't parse, include it
-        dt = datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-        cutoff = datetime.now() - timedelta(days=months * 30)
-        return dt >= cutoff
+        s = str(date_str)[:10].replace(".", "-").strip()
+        # Try multiple date formats
+        for fmt in [r"(\d{4})-(\d{2})-(\d{2})", r"(\d{2})-(\d{2})-(\d{4})"]:
+            m = re.match(fmt, s)
+            if m:
+                if fmt.startswith(r"(\d{2})"):
+                    y, mo, d = int(m.group(3)), int(m.group(2)), int(m.group(1))
+                else:
+                    y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+                dt = datetime(y, mo, d)
+                cutoff = datetime.now() - timedelta(days=months * 30)
+                return dt >= cutoff
+        # Also try "DD.MM.YYYY" format
+        m = re.match(r"(\d{2})\.(\d{2})\.(\d{4})", s)
+        if m:
+            dt = datetime(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+            cutoff = datetime.now() - timedelta(days=months * 30)
+            return dt >= cutoff
+        return False  # Unrecognized format, exclude
     except Exception:
-        return True
+        return False
 
 
 def quick_parse(site, url, session=None):
