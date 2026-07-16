@@ -22,6 +22,38 @@ def _is_already_chinese(text):
     return cjk / max(len(text), 1) > 0.15
 
 
+def translate_articles_batch(articles):
+    """Translate titles and first 300 chars of content for a list of article dicts (in-place).
+    Skips articles whose titles are already Chinese. Returns count of translated articles."""
+    if not articles or not DEEPSEEK_API_KEY:
+        return 0
+
+    texts = []
+    indices = []
+    for i, a in enumerate(articles):
+        title = a.get("title", "")
+        if not title or _is_already_chinese(title):
+            continue
+        texts.append(title)
+        content = a.get("content", "")
+        texts.append(content[:300] if content else "")
+        indices.append(i)
+
+    if not texts:
+        return 0
+
+    translated = batch_translate(texts, max_texts=25)
+    count = 0
+    for idx_in_list, art_idx in enumerate(indices):
+        ti = idx_in_list * 2
+        if ti < len(translated) and translated[ti]:
+            articles[art_idx]["title"] = translated[ti]
+            count += 1
+        if ti + 1 < len(translated) and translated[ti + 1]:
+            articles[art_idx]["content"] = translated[ti + 1]
+    return count
+
+
 def batch_translate(texts, max_texts=30):
     """
     Translate a list of texts to Chinese.

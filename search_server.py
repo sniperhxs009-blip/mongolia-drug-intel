@@ -6,7 +6,7 @@ from db import save_report, get_latest_report, get_report_by_id
 from sites import SITES
 from drug_keywords import get_all_keywords, match_drug_keywords
 from global_search import global_drug_search
-from translate import batch_translate
+from translate import batch_translate, translate_articles_batch
 from report_generator import generate_intelligence_report
 from email_sender import send_drug_intel_email, send_instant_alert, test_smtp_connection
 import requests
@@ -44,6 +44,32 @@ _auto_crawler = {
     "alert_count_today": 0,     # number of instant alerts sent today
 }
 
+def _translate_existing_articles():
+    """Background task: translate any existing articles whose titles are not yet Chinese."""
+    from translate import _is_already_chinese
+    conn = get_conn()
+    rows = conn.execute("SELECT id, title, content FROM articles").fetchall()
+    conn.close()
+
+    to_translate = []
+    for r in rows:
+        title = r["title"] or ""
+        if not _is_already_chinese(title):
+            to_translate.append({"id": r["id"], "title": title, "content": r["content"] or ""})
+
+    if not to_translate:
+        return
+
+    translated = translate_articles_batch(to_translate)
+    if translated > 0:
+        conn = get_conn()
+        for a in to_translate:
+            conn.execute("UPDATE articles SET title=?, content=? WHERE id=?",
+                         (a["title"], a["content"], a["id"]))
+        conn.commit()
+        conn.close()
+
+
 def _auto_crawl_loop():
     """Background daemon: real-time monitoring - crawl every few minutes,
     AI-analyze new articles instantly, push drug alerts immediately."""
@@ -57,6 +83,12 @@ def _auto_crawl_loop():
 
     # Wait 30s for server to finish starting before first crawl
     time.sleep(30)
+
+    # Translate any existing articles that aren't yet in Chinese
+    try:
+        _translate_existing_articles()
+    except Exception:
+        pass
 
     # Dedicated session for auto-crawler (avoids sharing with Flask request thread)
     session = requests.Session()
@@ -221,11 +253,17 @@ def _crawl_site(site, session):
         # Fetch new article
         art = quick_parse(site, art_url, session)
         if art and art["title"]:
-            insert_article(art)
             articles.append(art)
             fetched += 1
 
         time.sleep(0.15)
+
+    # Batch translate new articles before inserting into DB
+    new_arts = articles[-fetched:] if fetched else []
+    if new_arts:
+        translate_articles_batch(new_arts)
+        for art in new_arts:
+            insert_article(art)
 
     conn.close()
     return articles, fetched
@@ -1369,11 +1407,17 @@ def live_fetch_site(site, max_arts=30):
         # Not in DB - fetch from web
         art = quick_parse(site, art_url)
         if art and art["title"]:
-            insert_article(art)
             articles.append(art)
             fetched += 1
 
         time.sleep(0.15)
+
+    # Batch translate new articles before inserting into DB
+    new_arts = articles[-fetched:] if fetched else []
+    if new_arts:
+        translate_articles_batch(new_arts)
+        for art in new_arts:
+            insert_article(art)
 
     conn.close()
     # Sort by date
@@ -1440,8 +1484,8 @@ def index():
     source_colors = SOURCE_COLORS
     source_text_colors = SOURCE_TEXT_COLORS
 
-    # Auto-translate results to Chinese (only when user is actively searching)
-    if query:
+    # Auto-translate results to Chinese
+    if results:
         translate_results(results)
 
     # Auto-crawler status for UI
