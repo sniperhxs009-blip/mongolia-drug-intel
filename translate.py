@@ -101,18 +101,19 @@ def batch_translate(texts, max_texts=30):
 
 
 def _translate_chunk(chunk, results):
-    """Translate a chunk of texts in one API call."""
+    """Translate a chunk of texts in one API call. Uses JSON for reliable parsing."""
     indices = [c[0] for c in chunk]
     texts = [c[1] for c in chunk]
 
-    separator = "\n<<<SEP>>>\n"
     prompt = (
-        f"Translate each of the following {len(texts)} texts to Simplified Chinese (简体中文). "
-        f"Return exactly {len(texts)} translations separated by '{separator}'. "
-        f"Do NOT include the separator in the translations themselves. "
-        f"Return ONLY the translations, no numbering, no explanation:\n\n"
-        + separator.join(texts)
+        f"Translate the following {len(texts)} texts to Simplified Chinese (简体中文). "
+        f"Return ONLY a JSON array of {len(texts)} strings, nothing else. "
+        f"Each element is the translation of the corresponding text. "
+        f"Example format: [\"翻译1\", \"翻译2\", \"翻译3\"]\n\n"
+        f"Texts to translate:\n"
     )
+    for j, t in enumerate(texts):
+        prompt += f"[{j}]: {t}\n"
 
     try:
         kwargs = {}
@@ -130,30 +131,48 @@ def _translate_chunk(chunk, results):
                 "temperature": 0.1,
                 "max_tokens": 4096,
             },
-            timeout=45,
+            timeout=60,
             **kwargs,
         )
 
         if resp.status_code == 200:
             data = resp.json()
-            translated_text = data["choices"][0]["message"]["content"]
-            parts = translated_text.split(separator)
-            # Clean up whitespace
-            parts = [p.strip() for p in parts]
-
-            for idx, part in zip(indices, parts):
-                if part:
-                    clean = part.strip()
-                    results[idx] = clean
-                    cache_key = hashlib.md5(texts[indices.index(idx)].encode()).hexdigest()
-                    _translation_cache[cache_key] = clean
+            raw = data["choices"][0]["message"]["content"].strip()
+            # Extract JSON array from response (handle markdown code blocks)
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[-1]
+                if raw.endswith("```"):
+                    raw = raw[:-3]
+                raw = raw.strip()
+            try:
+                parts = json.loads(raw)
+            except json.JSONDecodeError:
+                # Try to extract array from text
+                import re as _re
+                m = _re.search(r"\[.*\]", raw, _re.DOTALL)
+                if m:
+                    try:
+                        parts = json.loads(m.group())
+                    except json.JSONDecodeError:
+                        parts = []
                 else:
-                    results[idx] = texts[indices.index(idx)]
+                    parts = []
 
-            # If count mismatch, fill remaining with originals
-            if len(parts) < len(indices):
-                for i in range(len(parts), len(indices)):
-                    results[indices[i]] = texts[i]
+            if isinstance(parts, list) and len(parts) > 0:
+                for i, idx in enumerate(indices):
+                    if i < len(parts) and parts[i] and isinstance(parts[i], str):
+                        clean = parts[i].strip()
+                        results[idx] = clean
+                        cache_key = hashlib.md5(texts[i].encode()).hexdigest()
+                        _translation_cache[cache_key] = clean
+                    else:
+                        results[idx] = texts[i]
+            else:
+                for i, idx in enumerate(indices):
+                    results[idx] = texts[i]
+        else:
+            for i, idx in enumerate(indices):
+                results[idx] = texts[i]
     except Exception:
         # On failure, return originals for this chunk
         for i, idx in enumerate(indices):

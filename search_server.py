@@ -10,7 +10,7 @@ from memory_crawler import (crawl_site as mc_crawl_site, get_cached_articles,
 from sites import SITES
 from drug_keywords import get_all_keywords, match_drug_keywords, score_article
 from global_search import global_drug_search
-from translate import batch_translate, translate_articles_batch
+from translate import batch_translate, translate_articles_batch, DEEPSEEK_API_KEY
 from report_generator import generate_intelligence_report
 from email_sender import send_drug_intel_email, send_instant_alert, test_smtp_connection
 import requests
@@ -1659,7 +1659,7 @@ def index():
         progress=progress,
         loading=False,
         crawler=crawler_status,
-        ai_enabled=bool(os.environ.get("DEEPSEEK_API_KEY")),
+        ai_enabled=bool(DEEPSEEK_API_KEY),
     )
 
 
@@ -1935,7 +1935,7 @@ def main():
     # Start auto-crawler daemon thread
     t = threading.Thread(target=_auto_crawl_loop, daemon=True, name="auto-crawler")
     t.start()
-    ai_enabled = bool(os.environ.get("DEEPSEEK_API_KEY"))
+    ai_enabled = bool(DEEPSEEK_API_KEY)
     interval_m = _auto_crawler["interval_minutes"]
     print("=" * 55)
     print("蒙古多源新闻搜索服务器")
