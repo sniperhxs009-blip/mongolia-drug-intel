@@ -10,7 +10,7 @@ from memory_crawler import (crawl_site as mc_crawl_site, get_cached_articles,
 from sites import SITES
 from drug_keywords import get_all_keywords, match_drug_keywords, score_article
 from global_search import global_drug_search
-from translate import batch_translate
+from translate import batch_translate, translate_articles_batch
 from report_generator import generate_intelligence_report
 from email_sender import send_drug_intel_email, send_instant_alert, test_smtp_connection
 import requests
@@ -1920,6 +1920,18 @@ def settings_page():
 
 def main():
     import webbrowser
+
+    # Translate any cached articles that aren't already Chinese (catch-up from previous runs)
+    with _cache_lock:
+        existing = list(_article_cache.values())
+    if existing:
+        try:
+            n = translate_articles_batch(existing)
+            if n > 0:
+                print(f"[启动] 已为 {n} 篇缓存文章补翻译为中文")
+        except Exception as e:
+            print(f"[启动] 补翻译失败: {e}")
+
     # Start auto-crawler daemon thread
     t = threading.Thread(target=_auto_crawl_loop, daemon=True, name="auto-crawler")
     t.start()
