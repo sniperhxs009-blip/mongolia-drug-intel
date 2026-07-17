@@ -1,15 +1,34 @@
 """
 Email push system for drug intelligence reports.
-Uses SMTP with configurable server settings stored in DB.
+Uses SMTP with configurable server settings stored in JSON.
 """
 import smtplib
 import os
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
-from db import get_email_recipients, get_smtp_config, get_latest_report
-from db import search_drug_articles_ai
-from drug_keywords import get_all_keywords
+from settings_store import get_email_recipients, get_smtp_config, get_latest_report
+from memory_crawler import get_cached_articles
+from drug_keywords import score_article
+
+
+def _get_drug_articles(limit=30, months=None):
+    """In-memory drug article search using keyword scoring."""
+    all_articles = get_cached_articles(months=months)
+    scored = []
+    for art in all_articles:
+        score, t1, t2, t3, title_match = score_article(
+            art.get("title", ""), art.get("content", ""), art.get("source")
+        )
+        if score >= 4:
+            art = dict(art)
+            art["drug_score"] = score
+            art["matched_tier1"] = t1
+            art["matched_tier2"] = t2
+            art["matched_tier3"] = t3
+            scored.append(art)
+    scored.sort(key=lambda x: x.get("drug_score", 0), reverse=True)
+    return scored[:limit], len(scored)
 
 
 def send_drug_intel_email(dry_run=False):
@@ -29,8 +48,7 @@ def send_drug_intel_email(dry_run=False):
         return {"sent": 0, "errors": ["没有启用的邮箱接收人"]}
 
     # Get drug articles
-    keywords = get_all_keywords()
-    articles, _ = search_drug_articles_ai(keywords, limit=30, months=None)
+    articles, _ = _get_drug_articles(limit=30, months=None)
 
     # Get latest report
     report = get_latest_report()

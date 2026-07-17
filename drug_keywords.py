@@ -12,6 +12,9 @@ To add new keywords: just append to the appropriate tier list below.
 The scoring function automatically weights them correctly for all sources.
 """
 
+import re
+
+
 # === TIER 1: Specific drug names (3 points each) ===
 # These are unambiguous — if an article mentions heroin, it IS drug-related.
 TIER1_KEYWORDS = [
@@ -130,6 +133,19 @@ TIER3_KEYWORDS = [
 ]
 
 
+# Short English keywords that require word boundaries to avoid false positives.
+# E.g. "ice" should NOT match "police", "meth" should NOT match "method".
+WORD_BOUNDARY_KEYWORDS = {"weed", "pot", "dope", "meth", "ice", "molly", "crack", "speed", "crank"}
+
+
+def _contains_keyword(text, keyword):
+    """Check if keyword is in text. Short English words use word boundaries."""
+    if keyword.lower() in WORD_BOUNDARY_KEYWORDS:
+        return bool(re.search(r'\b' + re.escape(keyword) + r'\b', text))
+    return keyword.lower() in text.lower()
+
+
+
 def get_all_keywords():
     """Flat list of all keywords for broad DB search."""
     all_kw = set()
@@ -151,13 +167,13 @@ def score_article(title, content, source=None):
     text = ((title or '') + ' ' + (content or '')).lower()
     title_lower = (title or '').lower()
 
-    matched_t1 = [kw for kw in TIER1_KEYWORDS if kw.lower() in text]
-    matched_t2 = [kw for kw in TIER2_KEYWORDS if kw.lower() in text]
-    matched_t3 = [kw for kw in TIER3_KEYWORDS if kw.lower() in text]
+    matched_t1 = [kw for kw in TIER1_KEYWORDS if _contains_keyword(text, kw)]
+    matched_t2 = [kw for kw in TIER2_KEYWORDS if _contains_keyword(text, kw)]
+    matched_t3 = [kw for kw in TIER3_KEYWORDS if _contains_keyword(text, kw)]
 
     # Title match check
     title_match = any(
-        kw.lower() in title_lower
+        _contains_keyword(title_lower, kw)
         for kw in TIER1_KEYWORDS + TIER2_KEYWORDS + TIER3_KEYWORDS
     )
 
@@ -192,6 +208,6 @@ def match_drug_keywords(text):
     matched = []
     all_kw = get_all_keywords()
     for kw in all_kw:
-        if kw.lower() in text_lower:
+        if _contains_keyword(text_lower, kw):
             matched.append(kw)
     return matched

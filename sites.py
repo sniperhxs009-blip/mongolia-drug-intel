@@ -90,9 +90,9 @@ SITES = [
         },
         "article_selectors": {
             "title": "h1",
-            "date": "time, .article-date, .pub-date",
+            "date": "time, .article-date, .pub-date, meta[property='article:published_time'], .article-meta time",
             "date_regex": r"(\d{4}-\d{2}-\d{2})",
-            "date_regex_fallback": r"(\d{4}\.\d{2}\.\d{2})",
+            "date_regex_fallback": r"content=\"(\d{4}-\d{2}-\d{2})",
             "content": "article p, .article-content p, .news-content p, .post-content p, p",
             "category": ".category a, .section a",
         },
@@ -104,7 +104,7 @@ SITES = [
         "label": "Shuum新闻",
         "lang": "mn",
         "home": "https://shuum.mn/",
-        "news_list": "https://shuum.mn/category/{cat}",
+        "news_list": "https://shuum.mn/category/{cat}?page={page}",
         "article_url": "https://shuum.mn/news-detail/{id}",
         "list_selectors": {
             "article_links": "a[href*='/news-detail/']",
@@ -113,14 +113,14 @@ SITES = [
         },
         "article_selectors": {
             "title": "h1",
-            "date": ".date, .news-date, .post-date",
+            "date": ".date, .news-date, .post-date, meta[property='article:published_time']",
             "date_regex": r"(\d{4}/\d{2}/\d{2})",
-            "date_regex_fallback": r"(\d{4}-\d{2}-\d{2})",
+            "date_regex_fallback": r"content=\"(\d{4}-\d{2}-\d{2})",
             "content": ".news-content p, article p, .post-body p, .detail-content p, p",
             "category": ".category, .breadcrumb a:last-child",
         },
         "date_format": "ymd_slash",
-        "paginate": None,
+        "paginate": {"param": "page", "start": 1, "max": 5},
     },
     {
         "name": "odkb-csto.org",
@@ -150,7 +150,7 @@ SITES = [
         "label": "蒙通社",
         "lang": "mn",
         "home": "https://montsame.mn/mn/",
-        "news_list": "https://montsame.mn/mn/",
+        "news_list": "https://montsame.mn/mn/?page={page}",
         "article_url": "https://montsame.mn/mn/read/{id}",
         "list_selectors": {
             "article_links": "a[href*='/read/']",
@@ -159,14 +159,14 @@ SITES = [
         },
         "article_selectors": {
             "title": "h1, h3, .article-title",
-            "date": "time, .date, .pub-date",
+            "date": "time, .date, .pub-date, meta[property='article:published_time']",
             "date_regex": r"(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})",
             "date_regex_fallback": r"(\d{4}-\d{2}-\d{2})",
             "content": "article p, .article-body p, .read-content p, .news-content p, p",
             "category": ".category a, .breadcrumb a:last-child",
         },
         "date_format": "ymd_hms",
-        "paginate": None,
+        "paginate": {"param": "page", "start": 1, "max": 5},
     },
     {
         "name": "unodc.org",
@@ -177,7 +177,7 @@ SITES = [
         "article_url": "https://www.unodc.org{path}",
         "list_selectors": {
             "article_links": "a[href*='/frontpage/'], a[href*='/news/'], a[href*='/press/']",
-            "link_pattern": r"(/unodc/(?!.*frontpage)(?!.*index\.html)\S+\.html)",
+            "link_pattern": r"(/unodc/[^/]+/\d{4}/\d{2}/[^/]+\.html|/unodc/frontpage/\d{4}/\w+/.+\.html)",
             "date_nearby_selector": ".date, time, .field-date",
         },
         "article_selectors": {
@@ -196,7 +196,7 @@ SITES = [
         "label": "国家应急管理局",
         "lang": "mn",
         "home": "https://nema.gov.mn/",
-        "news_list": "https://nema.gov.mn/posts",
+        "news_list": "https://nema.gov.mn/posts?page={page}",
         "article_url": "https://nema.gov.mn/post/{id}",
         "ssl_verify": False,
         "list_selectors": {
@@ -211,7 +211,7 @@ SITES = [
             "content": ".html-body p, #rich-text p, .post-item p, section p, p",
         },
         "date_format": "ymd_slash",
-        "paginate": None,
+        "paginate": {"param": "page", "start": 1, "max": 5},
     },
     {
         "name": "moe.gov.mn",
@@ -270,9 +270,9 @@ SITES = [
         },
         "article_selectors": {
             "title": "h1",
-            "date": "time, .date, .pub-date",
+            "date": "time, .date, .pub-date, meta[property='article:published_time'], .article-meta time",
             "date_regex": r"(\d{4}-\d{2}-\d{2})",
-            "date_regex_fallback": r"(\d{4}\.\d{2}\.\d{2})",
+            "date_regex_fallback": r"content=\"(\d{4}-\d{2}-\d{2})",
             "content": "article p, .article-content p, .news-content p, .read-content p, p",
             "category": ".category a, .breadcrumb a:last-child",
         },

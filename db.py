@@ -1,3 +1,8 @@
+# DEPRECATED: This module has been replaced by memory_crawler.py + settings_store.py.
+# All article storage is now in-memory only (no SQLite).
+# Email/SMTP/push/report settings are stored in JSON files.
+# The DB-dependent scripts that used this module have been moved to tools/.
+# This file is kept for reference and one-time migration via settings_store.migrate_from_sqlite().
 import sqlite3
 import os
 from datetime import datetime, timedelta

@@ -1,10 +1,14 @@
 from flask import Flask, request, render_template_string, jsonify, redirect, Response
-from db import init_db, search_by_date, get_stats, article_exists_by_url, insert_article, get_conn, search_drug_articles, search_drug_articles_ai
-from db import get_email_recipients, add_email_recipient, remove_email_recipient, toggle_email_recipient
-from db import get_smtp_config, save_smtp_config, get_push_schedules, save_push_schedule, delete_push_schedule, get_next_push_time
-from db import save_report, get_latest_report, get_report_by_id
+from settings_store import (get_email_recipients, add_email_recipient, remove_email_recipient,
+    toggle_email_recipient, get_smtp_config, save_smtp_config, get_push_schedules,
+    save_push_schedule, delete_push_schedule, get_next_push_time,
+    save_report, get_latest_report, get_report_by_id, migrate_from_sqlite)
+import memory_crawler
+from memory_crawler import (crawl_site as mc_crawl_site, get_cached_articles,
+    get_cache_size, get_cache_stats, is_in_cache, add_to_cache,
+    _article_cache, _seen_urls, _cache_lock, _is_within_months, quick_parse, http_session)
 from sites import SITES
-from drug_keywords import get_all_keywords, match_drug_keywords
+from drug_keywords import get_all_keywords, match_drug_keywords, score_article
 from global_search import global_drug_search
 from translate import batch_translate, translate_articles_batch
 from report_generator import generate_intelligence_report
@@ -19,18 +23,6 @@ from bs4 import BeautifulSoup
 
 app = Flask(__name__)
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "mn,en;q=0.9,ru;q=0.7",
-}
-http_session = requests.Session()
-http_session.headers.update(HEADERS)
-
-# Disable SSL warnings for sites with broken certs
-import urllib3
-urllib3.disable_warnings()
-
 # --- Auto-crawler background thread ---
 _auto_crawler = {
     "running": False,
@@ -44,36 +36,9 @@ _auto_crawler = {
     "alert_count_today": 0,     # number of instant alerts sent today
 }
 
-def _translate_existing_articles():
-    """Background task: translate any existing articles whose titles are not yet Chinese."""
-    from translate import _is_already_chinese
-    conn = get_conn()
-    rows = conn.execute("SELECT id, title, content FROM articles").fetchall()
-    conn.close()
-
-    to_translate = []
-    for r in rows:
-        title = r["title"] or ""
-        if not _is_already_chinese(title):
-            to_translate.append({"id": r["id"], "title": title, "content": r["content"] or ""})
-
-    if not to_translate:
-        return
-
-    translated = translate_articles_batch(to_translate)
-    if translated > 0:
-        conn = get_conn()
-        for a in to_translate:
-            conn.execute("UPDATE articles SET title=?, content=? WHERE id=?",
-                         (a["title"], a["content"], a["id"]))
-        conn.commit()
-        conn.close()
-
-
 def _auto_crawl_loop():
     """Background daemon: real-time monitoring - crawl every few minutes,
     AI-analyze new articles instantly, push drug alerts immediately."""
-    from drug_keywords import get_all_keywords
     from drug_ai import DrugAnalyzer
 
     _auto_crawler["running"] = True
@@ -81,16 +46,12 @@ def _auto_crawl_loop():
     analyzer = DrugAnalyzer()
     all_keywords = get_all_keywords()
 
-    # Wait 30s for server to finish starting before first crawl
     time.sleep(30)
 
-    # Dedicated session for auto-crawler (avoids sharing with Flask request thread)
     session = requests.Session()
-    session.headers.update(HEADERS)
+    session.headers.update(memory_crawler.HEADERS)
 
-    # Track state
-    last_pushed_article_id = 0     # highest article ID that has been pushed
-    last_daily_push_date = None    # track daily digest pushes
+    last_daily_push_date = None
 
     while True:
         now = datetime.now()
@@ -99,26 +60,23 @@ def _auto_crawl_loop():
         _auto_crawler["next_crawl"] = now + timedelta(seconds=crawl_interval)
         _auto_crawler["current_site"] = ""
 
-        # Record max article ID before crawl to detect new ones
-        pre_crawl_max_id = 0
-        try:
-            conn = get_conn()
-            row = conn.execute("SELECT MAX(id) FROM articles").fetchone()
-            pre_crawl_max_id = row[0] or 0
-            conn.close()
-        except Exception:
-            pass
-
+        pre_count = get_cache_size()
         total_new = 0
+        new_article_urls = []
+
         for site in SITES:
             if site.get("requires_js"):
                 continue
             _auto_crawler["current_site"] = site["label"]
             try:
-                arts, new_count = _crawl_site(site, session)
+                arts, new_count = mc_crawl_site(site, session, max_articles=30, months=3)
                 total_new += new_count
                 if new_count > 0:
                     print(f"[实时监控] {site['label']}: +{new_count} 篇新文章")
+                    # Track new URLs for alert analysis
+                    for art in arts:
+                        if art.get("url") and not is_in_cache(art["url"]):
+                            pass  # already added by mc_crawl_site
             except Exception as e:
                 print(f"[实时监控] {site['label']}: 错误 - {e}")
             time.sleep(2)
@@ -131,28 +89,21 @@ def _auto_crawl_loop():
 
         # ---- Instant Drug Alert Phase ----
         if total_new > 0:
-            # Fetch newly inserted articles (ID > pre_crawl_max_id)
             try:
-                from email_sender import send_instant_alert
-                conn = get_conn()
-                new_rows = conn.execute(
-                    "SELECT * FROM articles WHERE id > ?", (pre_crawl_max_id,)
-                ).fetchall()
-                conn.close()
+                # Get newly added articles since pre_count
+                with _cache_lock:
+                    cache_values = list(_article_cache.values())
+                    new_articles = cache_values[pre_count:] if pre_count < len(cache_values) else []
 
-                if new_rows:
-                    # Run AI drug analysis on new articles
+                if new_articles:
                     drug_hits = []
-                    for r in new_rows:
-                        d = dict(r)
+                    for d in new_articles:
                         title = d.get("title") or ""
                         content = d.get("content") or ""
-                        # Fast keyword pre-filter
                         text = (title + " " + content).lower()
                         kw_match = any(kw.lower() in text for kw in all_keywords if len(kw) >= 3)
                         if not kw_match:
                             continue
-                        # AI deep analysis
                         analysis = analyzer.analyze(title, content, d.get("source"))
                         if analysis["is_drug"]:
                             d["drug_score"] = analysis["score"]
@@ -198,63 +149,6 @@ def _auto_crawl_loop():
         for _ in range(crawl_interval // 30):
             time.sleep(30)
 
-
-def _crawl_site(site, session):
-    """Fetch a single site's homepage, return (articles, new_count)."""
-    try:
-        resp = session.get(site["home"], timeout=20, allow_redirects=True,
-                          verify=site.get("ssl_verify", True))
-        if resp.status_code != 200:
-            return [], 0
-    except Exception:
-        return [], 0
-
-    soup = BeautifulSoup(resp.text, "html.parser")
-    sel = site["list_selectors"]
-    seen = set()
-    articles = []
-    fetched = 0
-    conn = get_conn()
-
-    for a in soup.select(sel["article_links"]):
-        href = a.get("href", "")
-        m = re.search(sel["link_pattern"], href)
-        if not m:
-            continue
-        identifier = m.group(1)
-
-        if "article_url" in site:
-            art_url = site["article_url"]
-            fmt_kwargs = {"id": identifier, "slug": identifier, "path": identifier}
-            used = {k: v for k, v in fmt_kwargs.items() if "{" + k + "}" in art_url}
-            art_url = art_url.format(**used)
-        else:
-            art_url = href if href.startswith("http") else f"https://{site['name']}{href}"
-
-        if art_url in seen:
-            continue
-        seen.add(art_url)
-
-        if len(articles) >= 15:
-            break
-
-        # Check DB first
-        row = conn.execute("SELECT * FROM articles WHERE url=?", (art_url,)).fetchone()
-        if row:
-            articles.append(dict(row))
-            continue
-
-        # Fetch new article
-        art = quick_parse(site, art_url, session)
-        if art and art["title"]:
-            insert_article(art)
-            articles.append(art)
-            fetched += 1
-
-        time.sleep(0.15)
-
-    conn.close()
-    return articles, fetched
 
 TEMPLATE = r"""<!DOCTYPE html>
 <html lang="zh">
@@ -1652,79 +1546,19 @@ def quick_parse(site, url, session=None):
 
 
 def live_fetch_site(site, max_arts=30, months=3):
-    """Live fetch latest articles from a single site's homepage (last N months only).
-    Returns articles from DB if already stored, or fetches new ones."""
+    """Live fetch from a single site via in-memory crawl engine. No DB."""
     if site.get("requires_js"):
         return [], 0
-
-    articles = []
-    fetched = 0
-
     try:
-        resp = http_session.get(site["home"], timeout=20, allow_redirects=True, verify=site.get("ssl_verify", True))
-        if resp.status_code != 200:
-            return [], 0
+        arts, new_count = mc_crawl_site(site, max_articles=max_arts, months=months)
+        arts.sort(key=lambda x: x.get("date") or "", reverse=True)
+        return arts, new_count
     except Exception:
         return [], 0
-
-    soup = BeautifulSoup(resp.text, "html.parser")
-    sel = site["list_selectors"]
-    seen = set()
-    conn = get_conn()
-
-    for a in soup.select(sel["article_links"]):
-        href = a.get("href", "")
-        m = re.search(sel["link_pattern"], href)
-        if not m:
-            continue
-        identifier = m.group(1)
-
-        if "article_url" in site:
-            art_url = site["article_url"]
-            # Build a kwargs dict from all known placeholder values
-            fmt_kwargs = {"id": identifier, "slug": identifier, "path": identifier}
-            # Only pass the keys the template actually uses
-            used = {k: v for k, v in fmt_kwargs.items() if "{" + k + "}" in art_url}
-            art_url = art_url.format(**used)
-        else:
-            art_url = href if href.startswith("http") else f"https://{site['name']}{href}"
-
-        if art_url in seen:
-            continue
-        seen.add(art_url)
-
-        if len(articles) >= max_arts:
-            break
-
-        # Check DB first - if exists, use stored version
-        row = conn.execute(
-            "SELECT * FROM articles WHERE url=?", (art_url,)
-        ).fetchone()
-        if row:
-            d = dict(row)
-            if _is_within_months(d.get("date"), months):
-                articles.append(d)
-            continue
-
-        # Not in DB - fetch from web
-        art = quick_parse(site, art_url)
-        if art and art["title"]:
-            if _is_within_months(art.get("date"), months):
-                insert_article(art)
-                articles.append(art)
-                fetched += 1
-
-        time.sleep(0.15)
-
-    conn.close()
-    # Sort by date
-    articles.sort(key=lambda x: x.get("date") or "", reverse=True)
-    return articles, fetched
 
 
 @app.route("/")
 def index():
-    init_db()
     query = request.args.get("q", "").strip()
     source_filter = request.args.get("source", "").strip()
     action = request.args.get("action", "search")
@@ -1732,53 +1566,66 @@ def index():
     per_page = 50
     offset = (page - 1) * per_page
 
-    stats = get_stats()
     all_sources = SITES
     total_live = 0
-
-    # Progress bar: based on DB fill rate vs a target of 500 articles
-    progress = min(100, int(stats.get("total", 0) / 500 * 100))
+    cache_total = get_cache_size()
+    progress = min(100, int(cache_total / 500 * 100))
 
     if action == "live":
-        # Live fetch from all (or filtered) source homepages
         target = [s for s in SITES if s["name"] == source_filter] if source_filter else SITES
         all_results = []
         for site in target:
-            arts, n = live_fetch_site(site, max_arts=20)
+            arts, n = live_fetch_site(site, max_arts=30)
             all_results.extend(arts)
             total_live += n
-        # Sort all by date
         all_results.sort(key=lambda x: x.get("date") or "", reverse=True)
         count = len(all_results)
         results = all_results[offset:offset + per_page]
-        stats = get_stats()  # Refresh
+        cache_total = get_cache_size()  # Refresh
     elif action == "drugs":
-        # Drug-related news filter (all time, no date limit)
         keywords = get_all_keywords()
         sf = source_filter if source_filter else None
-        results, count = search_drug_articles(keywords, source=sf, limit=200, months=3)
-        results = results[offset:offset + per_page]
+        # In-memory drug filter
+        all_articles = get_cached_articles(source=sf, months=3)
+        scored = []
+        for art in all_articles:
+            title = art.get("title") or ""
+            content = art.get("content") or ""
+            sc, t1, t2, t3, tm = score_article(title, content, art.get("source"))
+            if sc >= 4:
+                art["drug_score"] = sc
+                art["matched_keywords"] = t1 + t2 + t3
+                scored.append(art)
+        scored.sort(key=lambda x: (-x["drug_score"], x.get("date") or ""))
+        count = len(scored)
+        results = scored[offset:offset + per_page]
         query = "[毒品新闻筛选]"
     elif action == "global":
-        # Global internet search for Mongolia drug news
         results, count = global_drug_search(max_per_query=10, total_timeout=40)
         results = results[offset:offset + per_page]
         query = "[全球毒品搜索]"
     else:
-        # Default: show recent articles from last 3 months
         sf = source_filter if source_filter else None
-        results, count = search_by_date("", source=sf, limit=200, months=3)
-        results = results[offset:offset + per_page]
+        all_articles = get_cached_articles(source=sf, months=3)
+        if query:
+            qlower = query.lower()
+            all_articles = [a for a in all_articles
+                          if qlower in (a.get("title") or "").lower()
+                          or qlower in (a.get("content") or "").lower()]
+        all_articles.sort(key=lambda x: x.get("date") or "", reverse=True)
+        count = len(all_articles)
+        results = all_articles[offset:offset + per_page]
 
-    # Build color maps
+    # Build stats dict for template compatibility
+    cache_sources = get_cache_stats()
+    stats = {"total": cache_total, "sources": [{"source_label": k, "cnt": v} for k, v in sorted(cache_sources.items(), key=lambda x: -x[1])]}
+
     source_colors = SOURCE_COLORS
     source_text_colors = SOURCE_TEXT_COLORS
 
-    # Auto-translate results to Chinese
     if results:
         translate_results(results)
 
-    # Auto-crawler status for UI
     crawler_status = {
         "running": _auto_crawler["running"],
         "last_crawl": _auto_crawler["last_crawl"],
@@ -1811,14 +1658,11 @@ def index():
 @app.route("/api/health")
 def api_health():
     """Health check for Render Cron keep-alive + trigger crawl if needed."""
-    init_db()
     # Ensure auto-crawler is running (gunicorn doesn't call main())
     if not _auto_crawler["running"]:
         t = threading.Thread(target=_auto_crawl_loop, daemon=True, name="auto-crawler")
         t.start()
-    conn = get_conn()
-    total = conn.execute("SELECT COUNT(*) FROM articles").fetchone()[0]
-    conn.close()
+    total = get_cache_size()
     return jsonify({
         "ok": True,
         "total_articles": total,
@@ -1846,68 +1690,25 @@ def api_live_stream():
             yield f"event: site_start\ndata: {_json.dumps({'site': label})}\n\n"
 
             try:
-                resp = http_session.get(site["home"], timeout=20, allow_redirects=True,
-                                       verify=site.get("ssl_verify", True))
-                if resp.status_code != 200:
-                    yield f"event: site_error\ndata: {_json.dumps({'site': label, 'error': f'HTTP {resp.status_code}'})}\n\n"
-                    continue
+                arts, _ = mc_crawl_site(site, max_articles=30, months=3)
             except Exception as e:
                 yield f"event: site_error\ndata: {_json.dumps({'site': label, 'error': str(e)})}\n\n"
                 continue
 
-            soup = BeautifulSoup(resp.text, "html.parser")
-            sel = site["list_selectors"]
-            conn = get_conn()
-            seen = set()
             site_count = 0
-
-            for a in soup.select(sel["article_links"]):
-                href = a.get("href", "")
-                m = re.search(sel["link_pattern"], href)
-                if not m:
-                    continue
-                identifier = m.group(1)
-
-                if "article_url" in site:
-                    art_url = site["article_url"]
-                    fmt_kwargs = {"id": identifier, "slug": identifier, "path": identifier}
-                    used = {k: v for k, v in fmt_kwargs.items() if "{" + k + "}" in art_url}
-                    art_url = art_url.format(**used)
-                else:
-                    art_url = href if href.startswith("http") else f"https://{site['name']}{href}"
-
-                if art_url in seen:
-                    continue
-                seen.add(art_url)
-
-                # Check DB
-                row = conn.execute("SELECT * FROM articles WHERE url=?", (art_url,)).fetchone()
-                if row:
-                    art = dict(row)
-                else:
-                    art = quick_parse(site, art_url)
-                    if art and art.get("title"):
-                        insert_article(art)
-                    else:
-                        continue
-
-                # Filter: only articles within last 3 months
-                if not _is_within_months(art.get("date"), 3):
-                    continue
-
+            for art in arts:
                 art["source_label"] = label
                 art["source"] = site["name"]
+                if not _is_within_months(art.get("date"), 3):
+                    continue
                 site_count += 1
                 total += 1
-
-                # Serialize datetime objects for JSON
                 art_json = {}
                 for k, v in art.items():
                     art_json[k] = v.isoformat() if hasattr(v, "isoformat") else str(v) if v is not None else ""
                 yield f"data: {_json.dumps(art_json, ensure_ascii=False)}\n\n"
                 time.sleep(0.05)
 
-            conn.close()
             yield f"event: site_done\ndata: {_json.dumps({'site': label, 'count': site_count})}\n\n"
             time.sleep(0.3)
 
@@ -1929,9 +1730,10 @@ def api_live_stream():
 @app.route("/report")
 def view_report():
     """Display the latest intelligence report."""
-    init_db()
     report = get_latest_report()
-    stats = get_stats()
+    cache_total = get_cache_size()
+    cache_sources = get_cache_stats()
+    stats = {"total": cache_total, "sources": [{"source_label": k, "cnt": v} for k, v in sorted(cache_sources.items(), key=lambda x: -x[1])]}
     progress = min(100, int(stats.get("total", 0) / 500 * 100))
     return render_template_string(
         REPORT_PAGE,
@@ -1944,10 +1746,10 @@ def view_report():
 @app.route("/report/<int:report_id>")
 def view_report_by_id(report_id):
     """Display a specific report by ID."""
-    init_db()
     report = get_report_by_id(report_id)
-    stats = get_stats()
-    progress = min(100, int(stats.get("total", 0) / 500 * 100))
+    cache_total = get_cache_size()
+    stats = {"total": cache_total, "sources": []}
+    progress = min(100, int(cache_total / 500 * 100))
     return render_template_string(
         REPORT_PAGE,
         report=report,
@@ -1958,11 +1760,25 @@ def view_report_by_id(report_id):
 
 @app.route("/api/generate-report", methods=["POST"])
 def api_generate_report():
-    """Generate a new drug intelligence report."""
-    init_db()
-    keywords = get_all_keywords()
-    articles, _ = search_drug_articles_ai(keywords, limit=200, months=None)
-    report = generate_intelligence_report(articles)
+    """Generate a new drug intelligence report from in-memory cache."""
+    from drug_ai import DrugAnalyzer
+    all_articles = get_cached_articles(months=3)
+    analyzer = DrugAnalyzer()
+    drug_articles = []
+    for art in all_articles:
+        title = art.get("title") or ""
+        content = art.get("content") or ""
+        analysis = analyzer.analyze(title, content, art.get("source"))
+        if analysis["is_drug"]:
+            art["drug_score"] = analysis["score"]
+            art["drug_confidence"] = analysis["confidence"]
+            art["drug_stage"] = analysis["stage"]
+            art["drug_types"] = analysis.get("drug_types", [])
+            art["drug_action"] = analysis.get("action", "")
+            art["matched_keywords"] = analysis.get("keywords", [])
+            drug_articles.append(art)
+    drug_articles.sort(key=lambda x: -x.get("drug_score", 0))
+    report = generate_intelligence_report(drug_articles)
     save_report(report["title"], report["content"], report["article_count"],
                 report["date_start"], report["date_end"])
     saved = get_latest_report()
@@ -2077,8 +1893,9 @@ def api_schedule_delete():
 
 @app.route("/settings")
 def settings_page():
-    init_db()
-    stats = get_stats()
+    cache_total = get_cache_size()
+    cache_sources = get_cache_stats()
+    stats = {"total": cache_total, "sources": [{"source_label": k, "cnt": v} for k, v in sorted(cache_sources.items(), key=lambda x: -x[1])]}
     progress = min(100, int(stats.get("total", 0) / 500 * 100))
     recipients = get_email_recipients(enabled_only=False)
     smtp = get_smtp_config()
@@ -2095,7 +1912,6 @@ def settings_page():
 
 def main():
     import webbrowser
-    init_db()
     # Start auto-crawler daemon thread
     t = threading.Thread(target=_auto_crawl_loop, daemon=True, name="auto-crawler")
     t.start()
