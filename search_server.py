@@ -10,7 +10,7 @@ from memory_crawler import (crawl_site as mc_crawl_site, get_cached_articles,
 from sites import SITES
 from drug_keywords import get_all_keywords, match_drug_keywords, score_article
 from global_search import global_drug_search
-from translate import batch_translate, translate_articles_batch
+from translate import batch_translate
 from report_generator import generate_intelligence_report
 from email_sender import send_drug_intel_email, send_instant_alert, test_smtp_connection
 import requests
@@ -113,13 +113,6 @@ def _auto_crawl_loop():
                             d["matched_keywords"] = analysis.get("keywords", [])
                             drug_hits.append(d)
 
-                    # ---- Auto-translate new articles to Chinese (after drug analysis) ----
-                    try:
-                        translated_count = translate_articles_batch(new_articles)
-                        if translated_count > 0:
-                            print(f"[自动翻译] {translated_count} 篇新文章已翻译为中文")
-                    except Exception as e:
-                        print(f"[自动翻译] 失败: {e}")
 
                     if drug_hits:
                         drug_hits.sort(key=lambda x: -x["drug_score"])

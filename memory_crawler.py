@@ -9,6 +9,7 @@ import threading
 from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
+from translate import translate_articles_batch
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -340,6 +341,7 @@ def crawl_site(site, session=None, max_articles=200, months=3):
     new_count = 0
     articles = []
     seen_this_run = set()
+    newly_parsed = []  # track for batch translation
 
     pg_param = paginate.get("param", "page") if paginate else "page"
     pg_start = paginate.get("start", 1) if paginate else 1
@@ -427,6 +429,7 @@ def crawl_site(site, session=None, max_articles=200, months=3):
                 add_to_cache(art)
                 articles.append(art)
                 new_count += 1
+                newly_parsed.append(art)
                 if _is_within_months(art.get("date", ""), months):
                     page_has_recent = True
 
@@ -440,5 +443,14 @@ def crawl_site(site, session=None, max_articles=200, months=3):
 
         if paginate and page > 0:
             time.sleep(0.3)
+
+    # Batch-translate newly parsed articles to Chinese
+    if newly_parsed:
+        try:
+            translated = translate_articles_batch(newly_parsed)
+            if translated > 0:
+                print(f"[翻译] {site['label']}: {translated}/{len(newly_parsed)} 篇已翻译为中文")
+        except Exception as e:
+            print(f"[翻译] {site['label']}: 失败 - {e}")
 
     return articles, new_count
