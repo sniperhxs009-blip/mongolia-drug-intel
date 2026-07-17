@@ -1596,8 +1596,8 @@ def index():
         all_articles = get_cached_articles(source=sf, months=3)
         scored = []
         for art in all_articles:
-            title = art.get("title") or ""
-            content = art.get("content") or ""
+            title = art.get("_orig_title") or art.get("title") or ""
+            content = art.get("_orig_content") or art.get("content") or ""
             sc, t1, t2, t3, tm = score_article(title, content, art.get("source"))
             if sc >= 4:
                 art["drug_score"] = sc

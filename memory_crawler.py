@@ -444,6 +444,14 @@ def crawl_site(site, session=None, max_articles=200, months=3):
         if paginate and page > 0:
             time.sleep(0.3)
 
+    # Save original Mongolian/Russian text before translating to Chinese,
+    # so drug keyword matching (which uses Mongolian/Russian/English terms)
+    # can still work after translation.
+    if newly_parsed:
+        for art in newly_parsed:
+            art["_orig_title"] = art.get("title", "")
+            art["_orig_content"] = art.get("content", "")
+
     # Batch-translate newly parsed articles to Chinese
     if newly_parsed:
         try:

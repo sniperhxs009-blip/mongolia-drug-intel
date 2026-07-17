@@ -18,7 +18,9 @@ def _get_drug_articles(limit=30, months=None):
     scored = []
     for art in all_articles:
         score, t1, t2, t3, title_match = score_article(
-            art.get("title", ""), art.get("content", ""), art.get("source")
+            art.get("_orig_title") or art.get("title", ""),
+            art.get("_orig_content") or art.get("content", ""),
+            art.get("source")
         )
         if score >= 4:
             art = dict(art)
