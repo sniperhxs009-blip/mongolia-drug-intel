@@ -69,7 +69,8 @@ def _auto_crawl_loop():
                 continue
             _auto_crawler["current_site"] = site["label"]
             try:
-                arts, new_count = mc_crawl_site(site, session, max_articles=200, months=3)
+                arts, new_count = mc_crawl_site(site, session, max_articles=200, months=3,
+                                                   max_seconds=60, max_pages=10)
                 total_new += new_count
                 if new_count > 0:
                     print(f"[实时监控] {site['label']}: +{new_count} 篇新文章")
@@ -1734,7 +1735,7 @@ def api_live_stream():
 
             try:
                 arts, _ = mc_crawl_site(site, max_articles=60, months=3,
-                                        max_seconds=25, max_pages=5)
+                                        max_seconds=30, max_pages=5)
             except Exception as e:
                 yield f"event: site_error\ndata: {_json.dumps({'site': label, 'error': str(e)})}\n\n"
                 continue

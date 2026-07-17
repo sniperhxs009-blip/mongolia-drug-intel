@@ -353,7 +353,13 @@ def crawl_site(site, session=None, max_articles=200, months=3, max_seconds=None,
 
     pg_param = paginate.get("param", "page") if paginate else "page"
     pg_start = paginate.get("start", 1) if paginate else 1
-    max_safe_pages = max_pages if max_pages is not None else 20
+    # Respect site's paginate.max, then explicit max_pages, then default 5
+    if max_pages is not None:
+        max_safe_pages = max_pages
+    elif paginate and paginate.get("max"):
+        max_safe_pages = paginate["max"]
+    else:
+        max_safe_pages = 5  # default: only 1 homepage + 4 extra pages for non-paginated sites
     cutoff_date = (datetime.now() - timedelta(days=months * 30)).strftime("%Y-%m-%d")
 
     page = 0
@@ -458,10 +464,11 @@ def crawl_site(site, session=None, max_articles=200, months=3, max_seconds=None,
                                 newest_date = d
                             if not oldest_date or d < oldest_date:
                                 oldest_date = d
-                        add_to_cache(art)
+                        added = add_to_cache(art)
                         articles.append(art)
-                        new_count += 1
-                        newly_parsed.append(art)
+                        if added:
+                            new_count += 1
+                            newly_parsed.append(art)
                         if _is_within_months(art.get("date", ""), months):
                             page_has_recent = True
 
