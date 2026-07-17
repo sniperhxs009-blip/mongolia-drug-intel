@@ -113,6 +113,14 @@ def _auto_crawl_loop():
                             d["matched_keywords"] = analysis.get("keywords", [])
                             drug_hits.append(d)
 
+                    # ---- Auto-translate new articles to Chinese (after drug analysis) ----
+                    try:
+                        translated_count = translate_articles_batch(new_articles)
+                        if translated_count > 0:
+                            print(f"[自动翻译] {translated_count} 篇新文章已翻译为中文")
+                    except Exception as e:
+                        print(f"[自动翻译] 失败: {e}")
+
                     if drug_hits:
                         drug_hits.sort(key=lambda x: -x["drug_score"])
                         print(f"[实时预警] 发现 {len(drug_hits)} 篇涉毒文章，立即推送!")
@@ -494,7 +502,13 @@ body {
 
 <div class="header">
   <h1>蒙古国毒品新闻搜集研判系统</h1>
-  <p class="subtitle">AI 驱动的蒙古毒品情报多源搜索系统</p>
+  <p class="subtitle">AI 驱动的蒙古毒品情报多源搜索系统
+  {% if ai_enabled %}
+  <span style="display:inline-block;background:rgba(34,197,94,0.2);color:#4ade80;border:1px solid rgba(34,197,94,0.3);padding:2px 10px;border-radius:12px;font-size:12px;margin-left:8px;">自动翻译已启用</span>
+  {% else %}
+  <span style="display:inline-block;background:rgba(239,68,68,0.2);color:#f87171;border:1px solid rgba(239,68,68,0.3);padding:2px 10px;border-radius:12px;font-size:12px;margin-left:8px;" title="设置 DEEPSEEK_API_KEY 环境变量以启用 AI 翻译">翻译未启用</span>
+  {% endif %}
+  </p>
 </div>
 
 <div class="container">
@@ -1652,6 +1666,7 @@ def index():
         progress=progress,
         loading=False,
         crawler=crawler_status,
+        ai_enabled=bool(os.environ.get("DEEPSEEK_API_KEY")),
     )
 
 
