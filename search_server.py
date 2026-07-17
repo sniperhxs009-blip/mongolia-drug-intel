@@ -1690,28 +1690,75 @@ def api_health():
 
 @app.route("/api/live-stream")
 def api_live_stream():
-    """SSE endpoint: streams articles in real-time as each site is fetched."""
+    """SSE endpoint: pushes cached articles instantly, then crawls for new ones."""
     source_filter = request.args.get("source", "")
     target = [s for s in SITES if s["name"] == source_filter] if source_filter else SITES
 
     def generate():
         import json as _json
         total = 0
+        pushed_urls = set()
+
+        # Phase 1: Push cached articles instantly (within 3 months, by source)
         for site in target:
             if site.get("requires_js"):
                 continue
             label = site.get("label", site["name"])
-            yield f"event: site_start\ndata: {_json.dumps({'site': label})}\n\n"
+            yield f"event: site_start
+data: {_json.dumps({'site': label, 'phase': 'cache'})}
+
+"
+
+            cached = get_cached_articles(source=site["name"], months=3)
+            site_count = 0
+            for art in cached:
+                url = art.get("url", "")
+                if url in pushed_urls:
+                    continue
+                pushed_urls.add(url)
+                site_count += 1
+                total += 1
+                art["source_label"] = label
+                art["source"] = site["name"]
+                art_json = {}
+                for k, v in art.items():
+                    art_json[k] = v.isoformat() if hasattr(v, "isoformat") else str(v) if v is not None else ""
+                yield f"data: {_json.dumps(art_json, ensure_ascii=False)}
+
+"
+
+            yield f"event: site_done
+data: {_json.dumps({'site': label, 'count': site_count, 'phase': 'cache'})}
+
+"
+            time.sleep(0.1)
+
+        # Phase 2: Crawl for new articles
+        for site in target:
+            if site.get("requires_js"):
+                continue
+            label = site.get("label", site["name"])
+            yield f"event: site_start
+data: {_json.dumps({'site': label, 'phase': 'crawl'})}
+
+"
 
             try:
-                arts, _ = mc_crawl_site(site, max_articles=100, months=3,
-                                        max_seconds=30, max_pages=8)
+                arts, _ = mc_crawl_site(site, max_articles=60, months=3,
+                                        max_seconds=25, max_pages=5)
             except Exception as e:
-                yield f"event: site_error\ndata: {_json.dumps({'site': label, 'error': str(e)})}\n\n"
+                yield f"event: site_error
+data: {_json.dumps({'site': label, 'error': str(e)})}
+
+"
                 continue
 
             site_count = 0
             for art in arts:
+                url = art.get("url", "")
+                if url in pushed_urls:
+                    continue
+                pushed_urls.add(url)
                 art["source_label"] = label
                 art["source"] = site["name"]
                 if not _is_within_months(art.get("date"), 3):
@@ -1721,13 +1768,21 @@ def api_live_stream():
                 art_json = {}
                 for k, v in art.items():
                     art_json[k] = v.isoformat() if hasattr(v, "isoformat") else str(v) if v is not None else ""
-                yield f"data: {_json.dumps(art_json, ensure_ascii=False)}\n\n"
-                time.sleep(0.05)
+                yield f"data: {_json.dumps(art_json, ensure_ascii=False)}
 
-            yield f"event: site_done\ndata: {_json.dumps({'site': label, 'count': site_count})}\n\n"
-            time.sleep(0.3)
+"
+                time.sleep(0.03)
 
-        yield f"event: done\ndata: {_json.dumps({'total': total})}\n\n"
+            yield f"event: site_done
+data: {_json.dumps({'site': label, 'count': site_count, 'phase': 'crawl'})}
+
+"
+            time.sleep(0.2)
+
+        yield f"event: done
+data: {_json.dumps({'total': total})}
+
+"
 
     return Response(
         generate(),
@@ -1740,9 +1795,6 @@ def api_live_stream():
     )
 
 
-# ===================== Report Routes =====================
-
-@app.route("/report")
 def view_report():
     """Display the latest intelligence report."""
     report = get_latest_report()
