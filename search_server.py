@@ -1704,10 +1704,7 @@ def api_live_stream():
             if site.get("requires_js"):
                 continue
             label = site.get("label", site["name"])
-            yield f"event: site_start
-data: {_json.dumps({'site': label, 'phase': 'cache'})}
-
-"
+            yield f"event: site_start\ndata: {_json.dumps({'site': label, 'phase': 'cache'})}\n\n"
 
             cached = get_cached_articles(source=site["name"], months=3)
             site_count = 0
@@ -1723,14 +1720,9 @@ data: {_json.dumps({'site': label, 'phase': 'cache'})}
                 art_json = {}
                 for k, v in art.items():
                     art_json[k] = v.isoformat() if hasattr(v, "isoformat") else str(v) if v is not None else ""
-                yield f"data: {_json.dumps(art_json, ensure_ascii=False)}
+                yield f"data: {_json.dumps(art_json, ensure_ascii=False)}\n\n"
 
-"
-
-            yield f"event: site_done
-data: {_json.dumps({'site': label, 'count': site_count, 'phase': 'cache'})}
-
-"
+            yield f"event: site_done\ndata: {_json.dumps({'site': label, 'count': site_count, 'phase': 'cache'})}\n\n"
             time.sleep(0.1)
 
         # Phase 2: Crawl for new articles
@@ -1738,19 +1730,13 @@ data: {_json.dumps({'site': label, 'count': site_count, 'phase': 'cache'})}
             if site.get("requires_js"):
                 continue
             label = site.get("label", site["name"])
-            yield f"event: site_start
-data: {_json.dumps({'site': label, 'phase': 'crawl'})}
-
-"
+            yield f"event: site_start\ndata: {_json.dumps({'site': label, 'phase': 'crawl'})}\n\n"
 
             try:
                 arts, _ = mc_crawl_site(site, max_articles=60, months=3,
                                         max_seconds=25, max_pages=5)
             except Exception as e:
-                yield f"event: site_error
-data: {_json.dumps({'site': label, 'error': str(e)})}
-
-"
+                yield f"event: site_error\ndata: {_json.dumps({'site': label, 'error': str(e)})}\n\n"
                 continue
 
             site_count = 0
@@ -1768,21 +1754,13 @@ data: {_json.dumps({'site': label, 'error': str(e)})}
                 art_json = {}
                 for k, v in art.items():
                     art_json[k] = v.isoformat() if hasattr(v, "isoformat") else str(v) if v is not None else ""
-                yield f"data: {_json.dumps(art_json, ensure_ascii=False)}
-
-"
+                yield f"data: {_json.dumps(art_json, ensure_ascii=False)}\n\n"
                 time.sleep(0.03)
 
-            yield f"event: site_done
-data: {_json.dumps({'site': label, 'count': site_count, 'phase': 'crawl'})}
-
-"
+            yield f"event: site_done\ndata: {_json.dumps({'site': label, 'count': site_count, 'phase': 'crawl'})}\n\n"
             time.sleep(0.2)
 
-        yield f"event: done
-data: {_json.dumps({'total': total})}
-
-"
+        yield f"event: done\ndata: {_json.dumps({'total': total})}\n\n"
 
     return Response(
         generate(),
@@ -1793,6 +1771,7 @@ data: {_json.dumps({'total': total})}
             "Connection": "keep-alive",
         }
     )
+
 
 
 def view_report():

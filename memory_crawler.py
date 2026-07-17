@@ -400,6 +400,8 @@ def crawl_site(site, session=None, max_articles=200, months=3, max_seconds=None,
         for a in links:
             if len(articles) >= max_articles:
                 break
+            if max_seconds and (time.time() - t0) > max_seconds:
+                break
 
             href = a.get("href", "")
             m = re.search(sel.get("link_pattern", r".*"), href)
