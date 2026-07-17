@@ -677,6 +677,9 @@ let liveArticleCount = 0;
         msg.textContent = labels[btn.value] || '正在加载...';
       }
       overlay.classList.add('show');
+      // Remove any stale hidden action input from previous submits
+      var oldAction = form.querySelector('input[name="action"]');
+      if (oldAction) oldAction.remove();
       // Force browser to render the overlay before submitting
       requestAnimationFrame(function() {
         requestAnimationFrame(function() {
@@ -695,6 +698,8 @@ let liveArticleCount = 0;
   var sourceSelect = document.getElementById('source-select');
   if (sourceSelect) {
     sourceSelect.addEventListener('change', function() {
+      var oldAction = this.form.querySelector('input[name="action"]');
+      if (oldAction) oldAction.remove();
       msg.textContent = '正在筛选...';
       overlay.classList.add('show');
       this.form.submit();
