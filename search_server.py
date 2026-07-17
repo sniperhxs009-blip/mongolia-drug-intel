@@ -70,7 +70,7 @@ def _auto_crawl_loop():
             _auto_crawler["current_site"] = site["label"]
             try:
                 arts, new_count = mc_crawl_site(site, session, max_articles=200, months=3,
-                                                   max_seconds=60, max_pages=10)
+                                                   max_seconds=60, max_pages=20)
                 total_new += new_count
                 if new_count > 0:
                     print(f"[实时监控] {site['label']}: +{new_count} 篇新文章")
