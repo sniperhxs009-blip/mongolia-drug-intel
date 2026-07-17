@@ -1698,7 +1698,7 @@ def api_live_stream():
             yield f"event: site_start\ndata: {_json.dumps({'site': label})}\n\n"
 
             try:
-                arts, _ = mc_crawl_site(site, max_articles=200, months=3)
+                arts, _ = mc_crawl_site(site, max_articles=60, months=3)
             except Exception as e:
                 yield f"event: site_error\ndata: {_json.dumps({'site': label, 'error': str(e)})}\n\n"
                 continue

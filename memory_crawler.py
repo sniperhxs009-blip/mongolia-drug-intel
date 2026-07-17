@@ -142,7 +142,7 @@ def quick_parse(site, url, session=None):
     s = session or http_session
     verify = site.get("ssl_verify", True)
     try:
-        resp = s.get(url, timeout=15, allow_redirects=True, verify=verify)
+        resp = s.get(url, timeout=8, allow_redirects=True, verify=verify)
         if resp.status_code != 200:
             return None
     except Exception:
@@ -345,7 +345,8 @@ def crawl_site(site, session=None, max_articles=200, months=3):
 
     pg_param = paginate.get("param", "page") if paginate else "page"
     pg_start = paginate.get("start", 1) if paginate else 1
-    max_safe_pages = 30
+    pg_max = paginate.get("max", 5) if paginate else 1
+    max_safe_pages = min(pg_max + 1, 30)  # +1 for homepage, never exceed 30
 
     page = 0
     while page < max_safe_pages:
