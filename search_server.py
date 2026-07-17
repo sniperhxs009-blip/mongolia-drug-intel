@@ -1557,7 +1557,8 @@ def live_fetch_site(site, max_arts=200, months=3):
     if site.get("requires_js"):
         return [], 0
     try:
-        arts, new_count = mc_crawl_site(site, max_articles=max_arts, months=months)
+        arts, new_count = mc_crawl_site(site, max_articles=max_arts, months=months,
+                                        max_seconds=30, max_pages=8)
         arts.sort(key=lambda x: x.get("date") or "", reverse=True)
         return arts, new_count
     except Exception:
@@ -1698,7 +1699,8 @@ def api_live_stream():
             yield f"event: site_start\ndata: {_json.dumps({'site': label})}\n\n"
 
             try:
-                arts, _ = mc_crawl_site(site, max_articles=60, months=3)
+                arts, _ = mc_crawl_site(site, max_articles=100, months=3,
+                                        max_seconds=30, max_pages=8)
             except Exception as e:
                 yield f"event: site_error\ndata: {_json.dumps({'site': label, 'error': str(e)})}\n\n"
                 continue

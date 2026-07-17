@@ -329,14 +329,19 @@ def quick_parse(site, url, session=None):
 
 # ---- Crawl engine ----
 
-def crawl_site(site, session=None, max_articles=200, months=3):
+def crawl_site(site, session=None, max_articles=200, months=3, max_seconds=None, max_pages=None):
     """Full-coverage crawl: paginate until articles are older than cutoff, or no more pages.
+
+    Args:
+        max_seconds: Per-site time limit in seconds (None = unlimited, for background crawler)
+        max_pages: Max pages to crawl (None = 20 for full coverage, lower for live fetch)
     Returns (articles_list, new_count)."""
     s = session or http_session
     verify = site.get("ssl_verify", True)
     sel = site.get("list_selectors", {})
     paginate = site.get("paginate")
     news_list = site.get("news_list")
+    t0 = time.time()
 
     new_count = 0
     articles = []
@@ -345,12 +350,13 @@ def crawl_site(site, session=None, max_articles=200, months=3):
 
     pg_param = paginate.get("param", "page") if paginate else "page"
     pg_start = paginate.get("start", 1) if paginate else 1
-    pg_max = paginate.get("max", 5) if paginate else 1
-    max_safe_pages = min(pg_max + 1, 30)  # +1 for homepage, never exceed 30
+    max_safe_pages = max_pages if max_pages is not None else 20
 
     page = 0
     while page < max_safe_pages:
         if len(articles) >= max_articles:
+            break
+        if max_seconds and (time.time() - t0) > max_seconds:
             break
 
         # Build page URL
