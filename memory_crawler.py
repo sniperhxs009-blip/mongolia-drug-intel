@@ -6,6 +6,7 @@ Thread-safe. Used by auto-crawler, live fetch, drug filter, and index search.
 import re
 import time
 import threading
+import concurrent.futures
 from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
@@ -142,7 +143,7 @@ def quick_parse(site, url, session=None):
     s = session or http_session
     verify = site.get("ssl_verify", True)
     try:
-        resp = s.get(url, timeout=8, allow_redirects=True, verify=verify)
+        resp = s.get(url, timeout=5, allow_redirects=True, verify=verify)
         if resp.status_code != 200:
             return None
     except Exception:
@@ -374,7 +375,7 @@ def crawl_site(site, session=None, max_articles=200, months=3, max_seconds=None,
             break  # no pagination config, only homepage was crawled
 
         try:
-            resp = s.get(listing_url, timeout=20, allow_redirects=True, verify=verify)
+            resp = s.get(listing_url, timeout=12, allow_redirects=True, verify=verify)
             if resp.status_code != 200:
                 if page == 0:
                     page += 1
@@ -397,19 +398,19 @@ def crawl_site(site, session=None, max_articles=200, months=3, max_seconds=None,
 
         page_has_recent = False
 
+        # Phase A: Build fetch queue, handle cached articles inline
+        fetch_queue = []
         for a in links:
             if len(articles) >= max_articles:
                 break
             if max_seconds and (time.time() - t0) > max_seconds:
                 break
-
             href = a.get("href", "")
             m = re.search(sel.get("link_pattern", r".*"), href)
             if not m:
                 continue
             identifier = m.group(1)
 
-            # Build article URL
             article_url_tmpl = site.get("article_url")
             if article_url_tmpl:
                 fmt_kwargs = {k: identifier for k in ["id", "slug", "path"]}
@@ -425,7 +426,6 @@ def crawl_site(site, session=None, max_articles=200, months=3, max_seconds=None,
                 continue
             seen_this_run.add(art_url)
 
-            # Check in-memory cache
             if is_in_cache(art_url):
                 with _cache_lock:
                     art = _article_cache.get(art_url)
@@ -435,24 +435,35 @@ def crawl_site(site, session=None, max_articles=200, months=3, max_seconds=None,
                             page_has_recent = True
                 continue
 
-            # Fetch and parse new article
-            art = quick_parse(site, art_url, s)
-            if art and art["title"]:
-                d = art.get("date", "")
-                if d:
-                    if not newest_date or d > newest_date:
-                        newest_date = d
-                    if not oldest_date or d < oldest_date:
-                        oldest_date = d
+            fetch_queue.append(art_url)
 
-                add_to_cache(art)
-                articles.append(art)
-                new_count += 1
-                newly_parsed.append(art)
-                if _is_within_months(art.get("date", ""), months):
-                    page_has_recent = True
-
-            time.sleep(0.1)
+        # Phase B: Concurrently fetch+parse all new articles
+        if fetch_queue:
+            workers = 5
+            with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = {executor.submit(quick_parse, site, url, s): url for url in fetch_queue}
+                for future in concurrent.futures.as_completed(futures):
+                    if len(articles) >= max_articles:
+                        break
+                    if max_seconds and (time.time() - t0) > max_seconds:
+                        break
+                    try:
+                        art = future.result()
+                    except Exception:
+                        continue
+                    if art and art["title"]:
+                        d = art.get("date", "")
+                        if d:
+                            if not newest_date or d > newest_date:
+                                newest_date = d
+                            if not oldest_date or d < oldest_date:
+                                oldest_date = d
+                        add_to_cache(art)
+                        articles.append(art)
+                        new_count += 1
+                        newly_parsed.append(art)
+                        if _is_within_months(art.get("date", ""), months):
+                            page_has_recent = True
 
         # Stop paginating if this page had zero recent articles (we've passed the 3-month window)
         if page > 0 and not page_has_recent:
@@ -461,7 +472,7 @@ def crawl_site(site, session=None, max_articles=200, months=3, max_seconds=None,
         page += 1
 
         if paginate and page > 0:
-            time.sleep(0.3)
+            time.sleep(0.15)
 
     # Save original Mongolian/Russian text before translating to Chinese,
     # so drug keyword matching (which uses Mongolian/Russian/English terms)

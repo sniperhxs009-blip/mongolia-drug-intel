@@ -79,7 +79,7 @@ def _auto_crawl_loop():
                             pass  # already added by mc_crawl_site
             except Exception as e:
                 print(f"[实时监控] {site['label']}: 错误 - {e}")
-            time.sleep(2)
+            time.sleep(0.5)
 
         _auto_crawler["last_crawl"] = datetime.now()
         _auto_crawler["last_crawl_count"] = total_new
