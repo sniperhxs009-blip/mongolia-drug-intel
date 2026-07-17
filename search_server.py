@@ -98,8 +98,8 @@ def _auto_crawl_loop():
                 if new_articles:
                     drug_hits = []
                     for d in new_articles:
-                        title = d.get("title") or ""
-                        content = d.get("content") or ""
+                        title = d.get("_orig_title") or d.get("title") or ""
+                        content = d.get("_orig_content") or d.get("content") or ""
                         text = (title + " " + content).lower()
                         kw_match = any(kw.lower() in text for kw in all_keywords if len(kw) >= 3)
                         if not kw_match:
