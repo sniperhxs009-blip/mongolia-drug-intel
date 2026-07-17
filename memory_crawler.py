@@ -347,10 +347,13 @@ def crawl_site(site, session=None, max_articles=200, months=3, max_seconds=None,
     articles = []
     seen_this_run = set()
     newly_parsed = []  # track for batch translation
+    newest_date = ""   # track date range for logging
+    oldest_date = ""
 
     pg_param = paginate.get("param", "page") if paginate else "page"
     pg_start = paginate.get("start", 1) if paginate else 1
     max_safe_pages = max_pages if max_pages is not None else 20
+    cutoff_date = (datetime.now() - timedelta(days=months * 30)).strftime("%Y-%m-%d")
 
     page = 0
     while page < max_safe_pages:
@@ -433,6 +436,13 @@ def crawl_site(site, session=None, max_articles=200, months=3, max_seconds=None,
             # Fetch and parse new article
             art = quick_parse(site, art_url, s)
             if art and art["title"]:
+                d = art.get("date", "")
+                if d:
+                    if not newest_date or d > newest_date:
+                        newest_date = d
+                    if not oldest_date or d < oldest_date:
+                        oldest_date = d
+
                 add_to_cache(art)
                 articles.append(art)
                 new_count += 1
@@ -467,5 +477,11 @@ def crawl_site(site, session=None, max_articles=200, months=3, max_seconds=None,
                 print(f"[翻译] {site['label']}: {translated}/{len(newly_parsed)} 篇已翻译为中文")
         except Exception as e:
             print(f"[翻译] {site['label']}: 失败 - {e}")
+
+    # Log date range coverage
+    if newest_date:
+        nd = str(newest_date)[:10]
+        od = str(oldest_date)[:10] if oldest_date else nd
+        print(f"[爬取] {site['label']}: {new_count} 篇新增, 日期范围 {od} ~ {nd}, 截止线 {cutoff_date}")
 
     return articles, new_count
