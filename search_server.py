@@ -69,7 +69,7 @@ def _auto_crawl_loop():
                 continue
             _auto_crawler["current_site"] = site["label"]
             try:
-                arts, new_count = mc_crawl_site(site, session, max_articles=30, months=3)
+                arts, new_count = mc_crawl_site(site, session, max_articles=200, months=3)
                 total_new += new_count
                 if new_count > 0:
                     print(f"[实时监控] {site['label']}: +{new_count} 篇新文章")
@@ -1545,7 +1545,7 @@ def quick_parse(site, url, session=None):
     }
 
 
-def live_fetch_site(site, max_arts=30, months=3):
+def live_fetch_site(site, max_arts=200, months=3):
     """Live fetch from a single site via in-memory crawl engine. No DB."""
     if site.get("requires_js"):
         return [], 0
@@ -1690,7 +1690,7 @@ def api_live_stream():
             yield f"event: site_start\ndata: {_json.dumps({'site': label})}\n\n"
 
             try:
-                arts, _ = mc_crawl_site(site, max_articles=30, months=3)
+                arts, _ = mc_crawl_site(site, max_articles=200, months=3)
             except Exception as e:
                 yield f"event: site_error\ndata: {_json.dumps({'site': label, 'error': str(e)})}\n\n"
                 continue

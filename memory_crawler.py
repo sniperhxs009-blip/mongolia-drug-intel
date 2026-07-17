@@ -328,46 +328,64 @@ def quick_parse(site, url, session=None):
 
 # ---- Crawl engine ----
 
-def crawl_site(site, session=None, max_articles=30, months=3):
-    """Crawl a single site: listing pages → article links → parse → cache.
+def crawl_site(site, session=None, max_articles=200, months=3):
+    """Full-coverage crawl: paginate until articles are older than cutoff, or no more pages.
     Returns (articles_list, new_count)."""
     s = session or http_session
     verify = site.get("ssl_verify", True)
     sel = site.get("list_selectors", {})
-
-    # Build listing page URLs
-    listing_urls = [site["home"]]
     paginate = site.get("paginate")
     news_list = site.get("news_list")
-    if paginate and news_list:
-        pg_param = paginate.get("param", "page")
-        pg_start = paginate.get("start", 1)
-        pg_max = paginate.get("max", 5)
-        for page in range(pg_start + 1, pg_start + pg_max):
-            try:
-                url = news_list.format(**{pg_param: page})
-                listing_urls.append(url)
-            except (KeyError, ValueError):
-                pass
 
     new_count = 0
     articles = []
     seen_this_run = set()
 
-    for listing_url in listing_urls:
+    pg_param = paginate.get("param", "page") if paginate else "page"
+    pg_start = paginate.get("start", 1) if paginate else 1
+    max_safe_pages = 30
+
+    page = 0
+    while page < max_safe_pages:
         if len(articles) >= max_articles:
             break
+
+        # Build page URL
+        if page == 0:
+            listing_url = site["home"]
+        elif paginate and news_list:
+            try:
+                listing_url = news_list.format(**{pg_param: pg_start + page})
+            except (KeyError, ValueError):
+                break
+        else:
+            break  # no pagination config, only homepage was crawled
 
         try:
             resp = s.get(listing_url, timeout=20, allow_redirects=True, verify=verify)
             if resp.status_code != 200:
-                continue
+                if page == 0:
+                    page += 1
+                    continue
+                break
         except Exception:
-            continue
+            if page == 0:
+                page += 1
+                continue
+            break
 
         parsed = BeautifulSoup(resp.text, "html.parser")
+        links = parsed.select(sel.get("article_links", "a"))
 
-        for a in parsed.select(sel.get("article_links", "a")):
+        if not links:
+            if page == 0:
+                page += 1
+                continue
+            break  # no more articles on this page, end of pagination
+
+        page_has_recent = False
+
+        for a in links:
             if len(articles) >= max_articles:
                 break
 
@@ -399,6 +417,8 @@ def crawl_site(site, session=None, max_articles=30, months=3):
                     art = _article_cache.get(art_url)
                     if art:
                         articles.append(art)
+                        if _is_within_months(art.get("date", ""), months):
+                            page_has_recent = True
                 continue
 
             # Fetch and parse new article
@@ -407,9 +427,18 @@ def crawl_site(site, session=None, max_articles=30, months=3):
                 add_to_cache(art)
                 articles.append(art)
                 new_count += 1
+                if _is_within_months(art.get("date", ""), months):
+                    page_has_recent = True
 
             time.sleep(0.1)
 
-        time.sleep(0.3)  # Gentle to the server between listing pages
+        # Stop paginating if this page had zero recent articles (we've passed the 3-month window)
+        if page > 0 and not page_has_recent:
+            break
+
+        page += 1
+
+        if paginate and page > 0:
+            time.sleep(0.3)
 
     return articles, new_count
