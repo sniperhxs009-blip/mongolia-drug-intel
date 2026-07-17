@@ -8,6 +8,13 @@ import hashlib
 import requests
 
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+
+# Fallback: read from local apikey.txt (gitignored, for local dev)
+if not DEEPSEEK_API_KEY:
+    _key_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "apikey.txt")
+    if os.path.exists(_key_file):
+        with open(_key_file, "r") as f:
+            DEEPSEEK_API_KEY = f.read().strip()
 DEEPSEEK_API_BASE = "https://api.deepseek.com/v1"
 DEEPSEEK_MODEL = "deepseek-chat"
 TRANSLATE_PROXY = os.environ.get("TRANSLATE_PROXY", os.environ.get("HTTPS_PROXY", os.environ.get("HTTP_PROXY", "")))
