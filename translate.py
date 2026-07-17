@@ -5,6 +5,7 @@ Caches results in-memory to avoid re-translating.
 import os
 import json
 import hashlib
+import time
 import requests
 
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
@@ -93,6 +94,8 @@ def batch_translate(texts, max_texts=30):
     for chunk_start in range(0, len(to_translate), max_texts):
         chunk = to_translate[chunk_start:chunk_start + max_texts]
         _translate_chunk(chunk, results)
+        if chunk_start + max_texts < len(to_translate):
+            time.sleep(2)  # avoid rate limiting between chunks
 
     return results
 
