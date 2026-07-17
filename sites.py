@@ -73,7 +73,7 @@ SITES = [
             "category": ".breadcrumb li:last-child",
         },
         "date_format": "ymd_hms",
-        "paginate": {"param": "page", "start": 1, "max": 10},
+        "paginate": {"param": "page", "start": 1, "max": 20},
     },
     {
         "name": "ikon.mn",
@@ -120,7 +120,7 @@ SITES = [
             "category": ".category, .breadcrumb a:last-child",
         },
         "date_format": "ymd_slash",
-        "paginate": {"param": "page", "start": 1, "max": 5},
+        "paginate": {"param": "page", "start": 1, "max": 20},
     },
     {
         "name": "odkb-csto.org",
@@ -166,7 +166,7 @@ SITES = [
             "category": ".category a, .breadcrumb a:last-child",
         },
         "date_format": "ymd_hms",
-        "paginate": {"param": "page", "start": 1, "max": 5},
+        "paginate": {"param": "page", "start": 1, "max": 20},
     },
     {
         "name": "unodc.org",
@@ -211,7 +211,7 @@ SITES = [
             "content": ".html-body p, #rich-text p, .post-item p, section p, p",
         },
         "date_format": "ymd_slash",
-        "paginate": {"param": "page", "start": 1, "max": 5},
+        "paginate": {"param": "page", "start": 1, "max": 20},
     },
     {
         "name": "moe.gov.mn",

@@ -353,11 +353,12 @@ def crawl_site(site, session=None, max_articles=200, months=3, max_seconds=None,
 
     pg_param = paginate.get("param", "page") if paginate else "page"
     pg_start = paginate.get("start", 1) if paginate else 1
-    # Respect explicit max_pages > site's paginate.max > default 20
+    # Take the MINIMUM: explicit max_pages, site paginate.max, or default 20
+    limit_from_site = paginate.get("max") if paginate else None
     if max_pages is not None:
-        max_safe_pages = max_pages
-    elif paginate and paginate.get("max"):
-        max_safe_pages = paginate["max"]
+        max_safe_pages = min(max_pages, limit_from_site) if limit_from_site else max_pages
+    elif limit_from_site:
+        max_safe_pages = limit_from_site
     else:
         max_safe_pages = 20
     cutoff_date = (datetime.now() - timedelta(days=months * 30)).strftime("%Y-%m-%d")
