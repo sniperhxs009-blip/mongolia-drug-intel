@@ -9,7 +9,7 @@ from memory_crawler import (crawl_site as mc_crawl_site, get_cached_articles,
     _article_cache, _seen_urls, _cache_lock, _is_within_months, quick_parse, http_session)
 from sites import SITES
 from drug_keywords import get_all_keywords, match_drug_keywords, score_article
-from global_search import global_drug_search
+
 from translate import batch_translate, translate_articles_batch, DEEPSEEK_API_KEY
 from report_generator import generate_intelligence_report
 from email_sender import send_drug_intel_email, send_instant_alert, test_smtp_connection
@@ -341,8 +341,7 @@ body {
 .btn-live:hover { background: rgba(34, 197, 94, 0.25); box-shadow: 0 0 25px rgba(34, 197, 94, 0.2); transform: translateY(-1px); }
 .btn-drugs { background: rgba(239, 68, 68, 0.15); color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
 .btn-drugs:hover { background: rgba(239, 68, 68, 0.25); box-shadow: 0 0 25px rgba(239, 68, 68, 0.2); transform: translateY(-1px); }
-.btn-global { background: rgba(13, 148, 136, 0.15); color: #2dd4bf; border-color: rgba(13, 148, 136, 0.3); }
-.btn-global:hover { background: rgba(13, 148, 136, 0.25); box-shadow: 0 0 25px rgba(13, 148, 136, 0.2); transform: translateY(-1px); }
+
 
 /* Stats Bar */
 .stats-bar {
@@ -542,7 +541,7 @@ body {
     <input type="hidden" name="page" value="1">
     <button type="button" id="btn-live" class="btn btn-live" onclick="startLiveFetch()">实时抓取</button>
     <button type="submit" name="action" value="drugs" class="btn btn-drugs">毒品新闻</button>
-    <button type="submit" name="action" value="global" class="btn btn-global" title="从全球互联网搜索蒙古毒品相关新闻">🌐 全球搜索</button>
+
     <a href="/report" class="btn" style="background:rgba(245,158,11,0.15);color:#fbbf24;border-color:rgba(245,158,11,0.3);text-decoration:none;display:inline-block;line-height:1.4;">📋 研判报告</a>
     <a href="/settings" class="btn" style="background:rgba(148,163,184,0.1);color:#94a3b8;border-color:rgba(148,163,184,0.2);text-decoration:none;display:inline-block;line-height:1.4;">⚙️ 设置</a>
   </form>
@@ -677,7 +676,6 @@ let liveArticleCount = 0;
   const action = params.get('action') || '';
   const labels = {
     'drugs': '正在搜索毒品相关新闻...',
-'global': '正在全球互联网搜索蒙古毒品情报...',
   };
   if (labels[action]) {
     msg.textContent = labels[action];
@@ -1649,10 +1647,7 @@ def index():
         count = len(scored)
         results = scored[offset:offset + per_page]
         query = "[毒品新闻筛选]"
-    elif action == "global":
-        results, count = global_drug_search(max_per_query=10, total_timeout=40)
-        results = results[offset:offset + per_page]
-        query = "[全球毒品搜索]"
+
     else:
         sf = source_filter if source_filter else None
         all_articles = get_cached_articles(source=sf, months=3)
