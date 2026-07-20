@@ -379,6 +379,37 @@ body {
 }
 .search-box select option { background: #0f172a; color: #e2e8f0; }
 
+/* Multi-select dropdown */
+.multi-select-wrap { position: relative; min-width: 130px; }
+.multi-select-btn {
+  width: 100%; padding: 12px 14px; background: rgba(15, 23, 42, 0.8);
+  color: var(--text); border: 1px solid var(--border); border-radius: 10px;
+  font-size: 13px; cursor: pointer; font-family: inherit; text-align: left;
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  transition: all 0.3s; white-space: nowrap;
+}
+.multi-select-btn:hover, .multi-select-btn:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(56,189,248,0.1); }
+.multi-select-btn .arrow { font-size: 10px; color: var(--text-muted); transition: transform 0.2s; }
+.multi-select-btn.open .arrow { transform: rotate(180deg); }
+.multi-select-panel {
+  display: none; position: absolute; top: 100%; left: 0; z-index: 100;
+  background: #0f172a; border: 1px solid var(--border); border-radius: 10px;
+  max-height: 340px; overflow-y: auto; margin-top: 4px; padding: 6px 0;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+  min-width: max(220px, 100%);
+}
+.multi-select-panel.show { display: block; }
+.multi-select-item {
+  display: flex; align-items: center; gap: 8px; padding: 8px 14px;
+  cursor: pointer; font-size: 13px; color: var(--text); transition: background 0.15s;
+  white-space: nowrap;
+}
+.multi-select-item:hover { background: rgba(56,189,248,0.08); }
+.multi-select-item input[type="checkbox"] {
+  width: 16px; height: 16px; accent-color: #38bdf8; cursor: pointer; flex-shrink: 0;
+}
+.multi-select-item span { overflow: hidden; text-overflow: ellipsis; }
+
 .btn {
   padding: 12px 20px; border: 1px solid transparent; border-radius: 10px;
   font-size: 13px; cursor: pointer; font-weight: 600; font-family: inherit;
@@ -585,12 +616,25 @@ mark { background: #fbbf24; color: #000; padding: 0 2px; border-radius: 2px; }
     <div style="display:flex;gap:8px;flex:1;min-width:200px;">
       <input type="text" name="q" value="{{ query }}" placeholder="搜索关键词..." style="flex:1;padding:8px 12px;background:rgba(15,23,42,0.8);border:1px solid var(--border);border-radius:8px;color:var(--text);min-width:150px;">
     </div>
-    <select name="source" id="source-select" multiple size="1" style="max-width:140px;" title="可多选来源（Ctrl+点击）">
-      <option value="">全部来源</option>
-      {% for s in all_sources %}
-      <option value="{{ s.name }}" {% if current_source and s.name in current_source.split(',') %}selected{% endif %}>{{ s.label }}</option>
-      {% endfor %}
-    </select>
+    <div class="multi-select-wrap" id="source-dropdown">
+      <button type="button" class="multi-select-btn" onclick="toggleSourceDropdown()" id="source-btn">
+        <span id="source-btn-text">全部来源</span>
+        <span class="arrow">▼</span>
+      </button>
+      <div class="multi-select-panel" id="source-panel">
+        <label class="multi-select-item" onclick="event.stopPropagation()">
+          <input type="checkbox" id="source-all" onchange="toggleAllSources(this)" checked>
+          <span>全部来源</span>
+        </label>
+        {% for s in all_sources %}
+        <label class="multi-select-item" onclick="event.stopPropagation()">
+          <input type="checkbox" class="source-cb" value="{{ s.name }}" onchange="updateSourceSelect()" {% if not current_source or s.name in current_source.split(',') %}checked{% endif %}>
+          <span>{{ s.label }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      <input type="hidden" name="source" id="source-hidden" value="{{ current_source or '' }}">
+    </div>
     <input type="date" name="date_from" value="{{ date_from or '' }}" title="起始日期" style="padding:6px 8px;background:rgba(15,23,42,0.8);border:1px solid var(--border);border-radius:8px;color:var(--text);max-width:130px;">
     <input type="date" name="date_to" value="{{ date_to or '' }}" title="结束日期" style="padding:6px 8px;background:rgba(15,23,42,0.8);border:1px solid var(--border);border-radius:8px;color:var(--text);max-width:130px;">
     <input type="hidden" name="page" value="1">
@@ -776,18 +820,51 @@ let liveArticleCount = 0;
     });
   }
 
-  // Source filter change
-  var sourceSelect = document.getElementById('source-select');
-  if (sourceSelect) {
-    sourceSelect.addEventListener('change', function() {
-      var oldAction = this.form.querySelector('input[name="action"]');
-      if (oldAction) oldAction.remove();
-      msg.textContent = '正在筛选...';
-      overlay.classList.add('show');
-      this.form.submit();
-    });
-  }
 })();
+
+// --- Multi-source checkbox dropdown ---
+function toggleSourceDropdown() {
+  var panel = document.getElementById('source-panel');
+  var btn = document.getElementById('source-btn');
+  panel.classList.toggle('show');
+  btn.classList.toggle('open');
+}
+
+function toggleAllSources(cb) {
+  var cbs = document.querySelectorAll('.source-cb');
+  cbs.forEach(function(c) { c.checked = cb.checked; });
+  updateSourceSelect();
+}
+
+function updateSourceSelect() {
+  var cbs = document.querySelectorAll('.source-cb');
+  var allCb = document.getElementById('source-all');
+  var hidden = document.getElementById('source-hidden');
+  var btnText = document.getElementById('source-btn-text');
+  var checked = [];
+  cbs.forEach(function(c) {
+    if (c.checked) checked.push(c.value);
+  });
+  allCb.checked = checked.length === cbs.length;
+  hidden.value = checked.join(',');
+  if (checked.length === 0 || checked.length === cbs.length) {
+    btnText.textContent = '全部来源';
+  } else if (checked.length === 1) {
+    var label = document.querySelector('.source-cb[value="' + checked[0] + '"]').parentElement.querySelector('span').textContent;
+    btnText.textContent = label;
+  } else {
+    btnText.textContent = '已选 ' + checked.length + ' 个来源';
+  }
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', function(e) {
+  var wrap = document.getElementById('source-dropdown');
+  if (wrap && !wrap.contains(e.target)) {
+    document.getElementById('source-panel').classList.remove('show');
+    document.getElementById('source-btn').classList.remove('open');
+  }
+});
 
 function startLiveFetch() {
   // Reset
@@ -2361,6 +2438,7 @@ def api_live_stream():
 
 
 
+@app.route("/report")
 def view_report():
     """Display the latest intelligence report."""
     report = get_latest_report()
