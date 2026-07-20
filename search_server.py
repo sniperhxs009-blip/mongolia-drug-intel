@@ -1644,7 +1644,8 @@ def index():
                 art["drug_score"] = sc
                 art["matched_keywords"] = t1 + t2 + t3
                 scored.append(art)
-        scored.sort(key=lambda x: (-x["drug_score"], x.get("date") or ""))
+        scored.sort(key=lambda x: x.get("date") or "0000-00-00", reverse=True)
+        scored.sort(key=lambda x: x["drug_score"], reverse=True)
         count = len(scored)
         results = scored[offset:offset + per_page]
         query = "[毒品新闻筛选]"
