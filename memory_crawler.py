@@ -1,8 +1,10 @@
 """
 Unified in-memory crawler for Mongolian news sites.
-Articles are cached in memory only -- no SQLite or file storage.
+Articles cached in memory with JSON disk persistence.
 Thread-safe. Used by auto-crawler, live fetch, drug filter, and index search.
 """
+import json
+import os
 import re
 import time
 import threading
@@ -25,6 +27,50 @@ http_session.headers.update(HEADERS)
 _article_cache: dict[str, dict] = {}   # url -> article dict (preserves insertion order in Python 3.7+)
 _seen_urls: set[str] = set()           # fast dedup
 _cache_lock = threading.Lock()
+_save_counter = 0                      # throttle saves
+
+_DATA_DIR = "/data" if os.path.isdir("/data") else os.path.dirname(os.path.abspath(__file__))
+_CACHE_PATH = os.path.join(_DATA_DIR, "article_cache.json")
+
+
+def save_cache():
+    """Persist in-memory cache to disk (atomic write)."""
+    global _save_counter
+    try:
+        with _cache_lock:
+            data = list(_article_cache.values())
+        tmp = _CACHE_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, _CACHE_PATH)
+        _save_counter = 0
+    except Exception as e:
+        print(f"[缓存] 保存失败: {e}")
+
+
+def load_cache():
+    """Restore cache from disk on startup."""
+    if not os.path.exists(_CACHE_PATH):
+        return 0
+    try:
+        with open(_CACHE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, list):
+            return 0
+        restored = 0
+        with _cache_lock:
+            for art in data:
+                url = art.get("url", "")
+                if url and url not in _seen_urls:
+                    _seen_urls.add(url)
+                    _article_cache[url] = art
+                    restored += 1
+        if restored > 0:
+            print(f"[缓存] 从磁盘恢复了 {restored} 篇文章")
+        return restored
+    except Exception as e:
+        print(f"[缓存] 加载失败: {e}")
+        return 0
 
 
 def is_in_cache(url):
@@ -32,14 +78,19 @@ def is_in_cache(url):
 
 
 def add_to_cache(article):
-    """Thread-safe add. Returns True if new, False if duplicate."""
+    """Thread-safe add. Returns True if new, False if duplicate. Auto-saves every 50 articles."""
+    global _save_counter
     url = article["url"]
     with _cache_lock:
         if url in _seen_urls:
             return False
         _seen_urls.add(url)
         _article_cache[url] = article
-        return True
+        _save_counter += 1
+        result = True
+    if _save_counter >= 50:
+        save_cache()
+    return result
 
 
 def get_cache_size():
@@ -499,10 +550,7 @@ def crawl_site(site, session=None, max_articles=200, months=3, max_seconds=None,
         except Exception as e:
             print(f"[翻译] {site['label']}: 失败 - {e}")
 
-    # Log date range coverage
-    if newest_date:
-        nd = str(newest_date)[:10]
-        od = str(oldest_date)[:10] if oldest_date else nd
-        print(f"[爬取] {site['label']}: {new_count} 篇新增, 日期范围 {od} ~ {nd}, 截止线 {cutoff_date}")
-
     return articles, new_count
+
+# Auto-restore cache from disk on import
+_load_result = load_cache()

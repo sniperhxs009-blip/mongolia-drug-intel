@@ -2,7 +2,8 @@ from flask import Flask, request, render_template_string, jsonify, redirect, Res
 from settings_store import (get_email_recipients, add_email_recipient, remove_email_recipient,
     toggle_email_recipient, get_smtp_config, save_smtp_config, get_push_schedules,
     save_push_schedule, delete_push_schedule, get_next_push_time,
-    save_report, get_latest_report, get_report_by_id, migrate_from_sqlite)
+    save_report, get_latest_report, get_report_by_id, migrate_from_sqlite,
+    get_telegram_config, save_telegram_config)
 import memory_crawler
 from memory_crawler import (crawl_site as mc_crawl_site, get_cached_articles,
     get_cache_size, get_cache_stats, is_in_cache, add_to_cache,
@@ -22,6 +23,54 @@ from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 
 app = Flask(__name__)
+
+
+def send_telegram_message(text, parse_mode="HTML"):
+    """Send a message via Telegram Bot API. Returns (ok, message)."""
+    cfg = get_telegram_config()
+    token = cfg.get("bot_token", "")
+    chat_id = cfg.get("chat_id", "")
+    if not token or not chat_id:
+        return False, "Telegram 未配置"
+    try:
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        resp = requests.post(url, json={
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": parse_mode,
+            "disable_web_page_preview": True,
+        }, timeout=15)
+        data = resp.json()
+        if data.get("ok"):
+            return True, "发送成功"
+        return False, data.get("description", "未知错误")
+    except Exception as e:
+        return False, str(e)
+
+
+def send_telegram_drug_alert(articles, top_n=5):
+    """Send a formatted drug intelligence alert via Telegram."""
+    cfg = get_telegram_config()
+    if not cfg.get("bot_token") or not cfg.get("chat_id"):
+        return False, "Telegram 未配置"
+    if not articles:
+        return False, "无涉毒文章"
+    lines = ["<b>🚨 蒙古涉毒情报预警</b>", f"<i>{datetime.now().strftime('%Y-%m-%d %H:%M')}</i>", ""]
+    for i, a in enumerate(articles[:top_n]):
+        title = (a.get("title") or "无标题")[:100]
+        score = a.get("drug_score", 0)
+        source = a.get("source_label", a.get("source", "?"))
+        url = a.get("url", "")
+        types_str = ", ".join(a.get("drug_types", [])[:3]) or "未知"
+        lines.append(f"<b>#{i+1}</b> [{types_str}] {title}")
+        lines.append(f"   来源: {source} | 评分: {score}/100")
+        if url:
+            lines.append(f"   <a href='{url}'>阅读原文</a>")
+        lines.append("")
+    lines.append(f"<i>共 {len(articles)} 篇涉毒文章</i>")
+    text = "\n".join(lines)
+    return send_telegram_message(text)
+
 
 # --- Auto-crawler daemon starter (works for both `python search_server.py` and gunicorn) ---
 _crawler_thread_started = False
@@ -402,6 +451,7 @@ body {
   font-weight: 600; color: var(--accent);
   background: rgba(56, 189, 248, 0.1); padding: 2px 8px; border-radius: 6px;
 }
+mark { background: #fbbf24; color: #000; padding: 0 2px; border-radius: 2px; }
 .card .source-tag {
   display: inline-block; padding: 3px 10px; border-radius: 6px;
   font-weight: 600; font-size: 10px; letter-spacing: 0.3px;
@@ -532,17 +582,24 @@ body {
 
 <div class="container">
   <form class="search-box" method="GET">
-    <select name="source" id="source-select">
+    <div style="display:flex;gap:8px;flex:1;min-width:200px;">
+      <input type="text" name="q" value="{{ query }}" placeholder="搜索关键词..." style="flex:1;padding:8px 12px;background:rgba(15,23,42,0.8);border:1px solid var(--border);border-radius:8px;color:var(--text);min-width:150px;">
+    </div>
+    <select name="source" id="source-select" multiple size="1" style="max-width:140px;" title="可多选来源（Ctrl+点击）">
       <option value="">全部来源</option>
       {% for s in all_sources %}
-      <option value="{{ s.name }}" {% if current_source==s.name %}selected{% endif %}>{{ s.label }}</option>
+      <option value="{{ s.name }}" {% if current_source and s.name in current_source.split(',') %}selected{% endif %}>{{ s.label }}</option>
       {% endfor %}
     </select>
+    <input type="date" name="date_from" value="{{ date_from or '' }}" title="起始日期" style="padding:6px 8px;background:rgba(15,23,42,0.8);border:1px solid var(--border);border-radius:8px;color:var(--text);max-width:130px;">
+    <input type="date" name="date_to" value="{{ date_to or '' }}" title="结束日期" style="padding:6px 8px;background:rgba(15,23,42,0.8);border:1px solid var(--border);border-radius:8px;color:var(--text);max-width:130px;">
     <input type="hidden" name="page" value="1">
+    <button type="submit" class="btn" style="background:rgba(56,189,248,0.15);color:#38bdf8;border-color:rgba(56,189,248,0.3);">🔍 搜索</button>
     <button type="button" id="btn-live" class="btn btn-live" onclick="startLiveFetch()">实时抓取</button>
     <button type="submit" name="action" value="drugs" class="btn btn-drugs">毒品新闻</button>
 
     <a href="/report" class="btn" style="background:rgba(245,158,11,0.15);color:#fbbf24;border-color:rgba(245,158,11,0.3);text-decoration:none;display:inline-block;line-height:1.4;">📋 研判报告</a>
+    <a href="/stats" class="btn" style="background:rgba(34,197,94,0.15);color:#4ade80;border-color:rgba(34,197,94,0.3);text-decoration:none;display:inline-block;line-height:1.4;">📊 统计</a>
     <a href="/settings" class="btn" style="background:rgba(148,163,184,0.1);color:#94a3b8;border-color:rgba(148,163,184,0.2);text-decoration:none;display:inline-block;line-height:1.4;">⚙️ 设置</a>
   </form>
 
@@ -617,7 +674,7 @@ body {
   <div class="results">
     {% for r in results %}
     <div class="card">
-      <h3><a href="{{ r.url }}" target="_blank">{{ r.title or '(无标题)' }}</a></h3>
+      <h3><a href="#" onclick="openDetail('{{ r.url|e }}','{{ r.title|e }}');return false;" style="cursor:pointer;">{{ r.title or '(无标题)' }}</a></h3>
       <div class="meta">
         <span class="pub-date">{{ r.date or '' }}</span>
         <span class="source-tag" style="background:{{ source_colors.get(r.source, 'rgba(56,189,248,0.1)') }};color:{{ source_text_colors.get(r.source, '#38bdf8') }}">{{ r.source_label or r.source }}</span>
@@ -642,11 +699,11 @@ body {
 
   <div class="pagination">
     {% if page > 1 %}
-    <a href="?source={{ current_source or '' }}&page={{ page - 1 }}&action={{ request.args.get('action','') }}">← 上一页</a>
+    <a href="?q={{ query or '' }}&source={{ current_source or '' }}&date_from={{ date_from or '' }}&date_to={{ date_to or '' }}&page={{ page - 1 }}&action={{ request.args.get('action','') }}">← 上一页</a>
     {% endif %}
     <span class="active">第 {{ page }} 页</span>
     {% if page * per_page < total_results %}
-    <a href="?source={{ current_source or '' }}&page={{ page + 1 }}&action={{ request.args.get('action','') }}">下一页 →</a>
+    <a href="?q={{ query or '' }}&source={{ current_source or '' }}&date_from={{ date_from or '' }}&date_to={{ date_to or '' }}&page={{ page + 1 }}&action={{ request.args.get('action','') }}">下一页 →</a>
     {% endif %}
   </div>
 
@@ -811,7 +868,7 @@ function appendArticleCard(art) {
   const more = (art.content || '').length > 250 ? '...' : '';
 
   card.innerHTML =
-    '<h3><a href="' + art.url + '" target="_blank">' + (art.title || '') + '</a></h3>' +
+    '<h3><a href="#" onclick="openDetail(\'' + art.url + '\',\'' + (art.title||'').replace(/'/g,"\\'") + '\');return false;" style="cursor:pointer;">' + (art.title || '') + '</a></h3>' +
     '<div class="meta">' +
       '<span class="pub-date">' + date + '</span>' +
       '<span class="source-tag" style="background:rgba(56,189,248,0.1);color:#38bdf8">' + sourceLabel + '</span>' +
@@ -820,7 +877,37 @@ function appendArticleCard(art) {
 
   container.insertBefore(card, container.firstChild);
 }
+
+// === Article Detail Modal ===
+function openDetail(url, title) {
+  var modal = document.getElementById('detail-modal');
+  var body = document.getElementById('detail-body');
+  modal.style.display = 'flex';
+  body.innerHTML = '<div style="text-align:center;padding:40px;">正在加载...</div>';
+  fetch('/api/article/detail?url=' + encodeURIComponent(url))
+    .then(r => r.json()).then(d => {
+      if (!d.ok) { body.innerHTML = '<p>无法加载文章详情</p>'; return; }
+      body.innerHTML =
+        '<h2 style="color:#38bdf8;margin-bottom:10px;">' + d.title + '</h2>' +
+        '<div style="display:flex;gap:12px;margin-bottom:16px;font-size:13px;color:var(--text-muted);">' +
+          '<span>' + (d.date||'') + '</span><span>' + (d.source||'') + '</span>' +
+        '</div>' +
+        '<div style="max-height:300px;overflow-y:auto;white-space:pre-wrap;line-height:1.8;margin-bottom:16px;padding:12px;background:rgba(15,23,42,0.5);border-radius:8px;">' + (d.content||'') + '</div>' +
+        (d.ai_analysis ? '<div style="padding:12px;background:rgba(56,189,248,0.08);border-left:3px solid #38bdf8;border-radius:4px;"><strong>AI分析</strong><div style="margin-top:8px;line-height:1.7;">' + d.ai_analysis.replace(/\n/g,'<br>') + '</div></div>' : '') +
+        '<div style="margin-top:12px;"><a href="' + d.url + '" target="_blank" style="color:#38bdf8;">打开原文 →</a></div>';
+    }).catch(function(){ body.innerHTML = '<p>加载失败</p>'; });
+}
+function closeDetail() { document.getElementById('detail-modal').style.display = 'none'; }
+document.getElementById('detail-modal').addEventListener('click', function(e){ if(e.target===this) closeDetail(); });
 </script>
+
+<!-- Article Detail Modal -->
+<div id="detail-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999;background:rgba(0,0,0,0.8);justify-content:center;align-items:center;padding:20px;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;max-width:750px;width:100%;max-height:85vh;overflow-y:auto;padding:24px;position:relative;">
+    <button onclick="closeDetail()" style="position:absolute;top:12px;right:12px;background:rgba(255,255,255,0.1);border:none;color:#fff;font-size:20px;cursor:pointer;width:36px;height:36px;border-radius:50%;">✕</button>
+    <div id="detail-body"></div>
+  </div>
+</div>
 
 </body>
 </html>
@@ -1002,6 +1089,334 @@ async function generateReport() {
     document.getElementById('loading').style.display = 'none';
   }
 }
+</script>
+</body>
+</html>
+"""
+
+STATS_PAGE = r"""<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>统计仪表盘 - 蒙古国毒品新闻搜集研判系统</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+:root {
+  --bg: #060b14;
+  --surface: rgba(15, 23, 42, 0.7);
+  --border: rgba(56, 189, 248, 0.12);
+  --accent: #38bdf8;
+  --accent2: #818cf8;
+  --text: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --glow: 0 0 20px rgba(56, 189, 248, 0.15);
+  --gradient-1: linear-gradient(135deg, #0ea5e9, #6366f1);
+  --gradient-2: linear-gradient(135deg, #06b6d4, #8b5cf6);
+  --radius: 12px;
+  --radius-lg: 16px;
+  --danger: #ef4444;
+  --success: #22c55e;
+  --warning: #f59e0b;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg); color: var(--text); min-height: 100vh; overflow-x: hidden;
+}
+
+.bg-grid {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0;
+  background-image:
+    linear-gradient(rgba(56, 189, 248, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(56, 189, 248, 0.03) 1px, transparent 1px);
+  background-size: 60px 60px;
+}
+
+.header {
+  position: relative; z-index: 2; padding: 30px 20px 20px; text-align: center;
+}
+.header h1 {
+  font-size: 28px; font-weight: 800; letter-spacing: -0.5px;
+  background: var(--gradient-2);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+
+.container { max-width: 1100px; margin: 0 auto; padding: 0 16px 40px; position: relative; z-index: 2; }
+
+.kpi-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 20px;
+}
+.kpi-card {
+  background: var(--surface); backdrop-filter: blur(20px);
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: 20px; box-shadow: var(--glow); text-align: center;
+}
+.kpi-value { font-size: 36px; font-weight: 800; margin: 8px 0; }
+.kpi-label { font-size: 13px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; }
+.kpi-icon { font-size: 28px; margin-bottom: 4px; }
+.kpi-accent { color: var(--accent); }
+.kpi-purple { color: var(--accent2); }
+.kpi-green { color: #4ade80; }
+.kpi-red { color: #f87171; }
+
+.chart-row {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;
+}
+.chart-card {
+  background: var(--surface); backdrop-filter: blur(20px);
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: 24px; box-shadow: var(--glow);
+}
+.chart-card h2 {
+  font-size: 16px; color: var(--accent); margin-bottom: 16px;
+  padding-bottom: 10px; border-bottom: 1px solid var(--border);
+}
+.chart-full { grid-column: 1 / -1; }
+
+.bar-chart { display: flex; flex-direction: column; gap: 8px; }
+.bar-row { display: flex; align-items: center; gap: 10px; }
+.bar-label { width: 140px; font-size: 12px; color: var(--text-secondary); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-track { flex: 1; height: 22px; background: rgba(15,23,42,0.8); border-radius: 6px; overflow: hidden; position: relative; }
+.bar-fill { height: 100%; border-radius: 6px; transition: width 0.6s ease; background: var(--gradient-1); }
+.bar-val { width: 50px; font-size: 12px; color: var(--text); font-weight: 600; text-align: left; }
+
+.pie-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.pie-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; }
+.pie-item { font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px; }
+
+.line-chart-wrap { position: relative; height: 200px; }
+.line-chart-wrap canvas { width: 100%; height: 100%; }
+
+.crawler-status {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;
+  margin-bottom: 20px;
+}
+.status-item {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px; text-align: center;
+}
+.status-value { font-size: 16px; font-weight: 700; color: var(--accent); }
+.status-label { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.status-dot-green { background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,0.5); }
+.status-dot-red { background: #ef4444; box-shadow: 0 0 8px rgba(239,68,68,0.5); }
+.status-dot-yellow { background: #f59e0b; box-shadow: 0 0 8px rgba(245,158,11,0.5); }
+
+.btn {
+  padding: 10px 18px; border: 1px solid transparent; border-radius: 10px;
+  font-size: 13px; cursor: pointer; font-weight: 600; font-family: inherit;
+  text-decoration: none; display: inline-block; transition: all 0.3s; color: #fff;
+}
+.btn-accent { background: rgba(56,189,248,0.15); color: #38bdf8; border-color: rgba(56,189,248,0.3); }
+.btn-accent:hover { background: rgba(56,189,248,0.25); box-shadow: 0 0 25px rgba(56,189,248,0.2); }
+
+.loading { text-align: center; padding: 40px; color: var(--text-muted); }
+
+@media (max-width: 768px) {
+  .chart-row { grid-template-columns: 1fr; }
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  .bar-label { width: 100px; }
+}
+</style>
+</head>
+<body>
+
+<div class="bg-grid"></div>
+
+<div class="header">
+  <h1>统计仪表盘</h1>
+</div>
+
+<div class="container">
+  <a href="/" class="btn btn-accent" style="margin-bottom:16px;">← 返回首页</a>
+
+  <!-- KPI Cards -->
+  <div class="kpi-grid" id="kpi-grid">
+    <div class="kpi-card"><div class="kpi-icon">📰</div><div class="kpi-value kpi-accent" id="kpi-total">-</div><div class="kpi-label">总文章数 (3个月)</div></div>
+    <div class="kpi-card"><div class="kpi-icon">💊</div><div class="kpi-value kpi-purple" id="kpi-drug">-</div><div class="kpi-label">涉毒文章</div></div>
+    <div class="kpi-card"><div class="kpi-icon">🚨</div><div class="kpi-value kpi-red" id="kpi-highrisk">-</div><div class="kpi-label">高危预警 (≥60分)</div></div>
+    <div class="kpi-card"><div class="kpi-icon">📡</div><div class="kpi-value kpi-green" id="kpi-sources">-</div><div class="kpi-label">活跃来源</div></div>
+  </div>
+
+  <!-- Crawler Status -->
+  <div class="crawler-status" id="crawler-status">
+    <div class="status-item"><span class="status-dot status-dot-yellow"></span><span class="status-value">-</span><div class="status-label">爬虫状态</div></div>
+    <div class="status-item"><span class="status-value">-</span><div class="status-label">上次爬取</div></div>
+    <div class="status-item"><span class="status-value">-</span><div class="status-label">本次新增</div></div>
+    <div class="status-item"><span class="status-value">-</span><div class="status-label">今日累计</div></div>
+    <div class="status-item"><span class="status-value">-</span><div class="status-label">上次推送</div></div>
+    <div class="status-item"><span class="status-value">-</span><div class="status-label">爬取间隔</div></div>
+  </div>
+
+  <!-- Charts Row -->
+  <div class="chart-row">
+    <div class="chart-card">
+      <h2>📊 来源分布 (Top 15)</h2>
+      <div class="bar-chart" id="source-chart"><div class="loading">加载中...</div></div>
+    </div>
+    <div class="chart-card">
+      <h2>💊 毒品类型分布</h2>
+      <div class="bar-chart" id="drug-chart"><div class="loading">加载中...</div></div>
+    </div>
+  </div>
+
+  <!-- Daily Trend -->
+  <div class="chart-row">
+    <div class="chart-card chart-full">
+      <h2>📈 每日抓取趋势 (近30天)</h2>
+      <div class="line-chart-wrap"><canvas id="trend-canvas"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const COLORS = ['#38bdf8','#818cf8','#4ade80','#f87171','#fbbf24','#fb923c','#a78bfa','#34d399','#f472b6','#60a5fa',
+  '#facc15','#2dd4bf','#e879f9','#fdba74','#67e8f9'];
+
+async function loadStats() {
+  const resp = await fetch('/api/stats');
+  const d = await resp.json();
+  if (!d.ok) return;
+
+  // KPIs
+  document.getElementById('kpi-total').textContent = d.total_articles;
+  document.getElementById('kpi-drug').textContent = d.drug_articles;
+  document.getElementById('kpi-highrisk').textContent = d.high_risk;
+  document.getElementById('kpi-sources').textContent = Object.keys(d.source_distribution).length;
+
+  // Crawler status
+  const cs = d.crawler;
+  const statusItems = document.querySelectorAll('#crawler-status .status-item');
+  const runningDot = cs.running ? '<span class="status-dot status-dot-green"></span>' : '<span class="status-dot status-dot-red"></span>';
+  const crawlingText = cs.is_crawling ? '<span class="status-dot status-dot-yellow"></span>爬取中' : runningDot + (cs.running ? '运行中' : '已停止');
+  statusItems[0].querySelector('.status-value').innerHTML = crawlingText;
+  statusItems[1].querySelector('.status-value').textContent = cs.last_crawl ? cs.last_crawl.substring(0, 16) : '无';
+  statusItems[2].querySelector('.status-value').textContent = cs.last_count + ' 篇';
+  statusItems[3].querySelector('.status-value').textContent = cs.total_today + ' 篇';
+  statusItems[4].querySelector('.status-value').textContent = cs.last_push ? cs.last_push.substring(0, 16) : '无';
+  statusItems[5].querySelector('.status-value').textContent = cs.interval_hours + ' 小时';
+
+  // Source distribution
+  const sources = d.source_distribution;
+  const sourceKeys = Object.keys(sources);
+  const sourceVals = Object.values(sources);
+  const maxSrc = Math.max(...sourceVals, 1);
+  let srcHTML = '';
+  sourceKeys.forEach((k, i) => {
+    const pct = Math.round(sources[k] / maxSrc * 100);
+    srcHTML += `<div class="bar-row">
+      <span class="bar-label">${k}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${COLORS[i % COLORS.length]}"></div></div>
+      <span class="bar-val">${sources[k]}</span>
+    </div>`;
+  });
+  document.getElementById('source-chart').innerHTML = srcHTML || '<p style="color:var(--text-muted);">暂无数据</p>';
+
+  // Drug types
+  const dtypes = d.drug_types;
+  const typeKeys = Object.keys(dtypes);
+  const typeVals = Object.values(dtypes);
+  const maxType = Math.max(...typeVals, 1);
+  let drugHTML = '';
+  typeKeys.forEach((k, i) => {
+    const pct = Math.round(dtypes[k] / maxType * 100);
+    drugHTML += `<div class="bar-row">
+      <span class="bar-label">${k}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${COLORS[(i+3) % COLORS.length]}"></div></div>
+      <span class="bar-val">${dtypes[k]}</span>
+    </div>`;
+  });
+  document.getElementById('drug-chart').innerHTML = drugHTML || '<p style="color:var(--text-muted);">暂无涉毒数据</p>';
+
+  // Line chart for daily trend
+  drawLineChart(d.daily_labels, d.daily_values);
+}
+
+function drawLineChart(labels, values) {
+  const canvas = document.getElementById('trend-canvas');
+  if (!labels.length) {
+    canvas.parentElement.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px;">暂无趋势数据</p>';
+    return;
+  }
+  const W = canvas.parentElement.clientWidth - 20;
+  const H = 200;
+  canvas.width = W * 2;
+  canvas.height = H * 2;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(2, 2);
+
+  const pad = { top: 20, right: 20, bottom: 40, left: 50 };
+  const w = W - pad.left - pad.right;
+  const h = H - pad.top - pad.bottom;
+
+  const maxV = Math.max(...values, 1);
+  const steps = values.length;
+
+  // Grid
+  ctx.strokeStyle = 'rgba(56,189,248,0.08)';
+  ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + h * i / 4;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+    ctx.fillStyle = '#64748b'; ctx.font = '10px Inter,sans-serif';
+    ctx.fillText(Math.round(maxV * (4 - i) / 4), 5, y + 4);
+  }
+
+  // X labels
+  ctx.fillStyle = '#64748b'; ctx.font = '9px Inter,sans-serif';
+  const labelStep = Math.max(1, Math.floor(steps / 8));
+  for (let i = 0; i < steps; i += labelStep) {
+    const x = pad.left + w * i / (steps - 1 || 1);
+    ctx.fillText(labels[i].substring(5), x - 15, H - pad.bottom + 20);
+  }
+
+  // Line
+  ctx.beginPath();
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 2;
+  ctx.shadowColor = 'rgba(56,189,248,0.4)';
+  ctx.shadowBlur = 8;
+  for (let i = 0; i < steps; i++) {
+    const x = pad.left + w * i / (steps - 1 || 1);
+    const y = pad.top + h - (values[i] / maxV * h);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke(); ctx.shadowBlur = 0;
+
+  // Gradient fill
+  const lastX = pad.left + w * (steps - 1) / (steps - 1 || 1);
+  ctx.lineTo(lastX, pad.top + h);
+  ctx.lineTo(pad.left, pad.top + h);
+  ctx.closePath();
+  const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + h);
+  grad.addColorStop(0, 'rgba(56,189,248,0.2)');
+  grad.addColorStop(1, 'rgba(56,189,248,0.01)');
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Dots
+  for (let i = 0; i < steps; i++) {
+    const x = pad.left + w * i / (steps - 1 || 1);
+    const y = pad.top + h - (values[i] / maxV * h);
+    ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2);
+    ctx.fillStyle = '#38bdf8'; ctx.fill();
+  }
+}
+
+window.addEventListener('resize', () => {
+  fetch('/api/stats').then(r => r.json()).then(d => {
+    if (d.ok) drawLineChart(d.daily_labels, d.daily_values);
+  });
+});
+
+loadStats();
 </script>
 </body>
 </html>
@@ -1219,8 +1634,28 @@ input::placeholder { color: var(--text-muted); }
       {% endif %}
     </div>
     <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">
-      <button class="btn btn-amber" onclick="sendNow()">📨 立即推送测试</button>
+      <button class="btn btn-amber" onclick="sendNow()">📨 立即推送邮件</button>
       <span id="send-msg" class="msg"></span>
+    </div>
+  </div>
+
+  <!-- Telegram Config -->
+  <div class="section">
+    <h2>📱 Telegram 推送配置</h2>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">
+      使用 <a href="https://t.me/BotFather" target="_blank" style="color:var(--accent);">@BotFather</a> 创建机器人获取 Token，
+      使用 <a href="https://t.me/userinfobot" target="_blank" style="color:var(--accent);">@userinfobot</a> 获取 Chat ID
+    </p>
+    <div class="form-row">
+      <label>Bot Token</label><input id="tg-token" type="password" placeholder="123456:ABC-DEF1234..." style="flex:2;">
+    </div>
+    <div class="form-row">
+      <label>Chat ID</label><input id="tg-chatid" placeholder="-1001234567890 或 123456789" style="flex:2;">
+    </div>
+    <div class="form-row">
+      <button class="btn btn-accent" onclick="saveTelegram()">保存配置</button>
+      <button class="btn btn-success" onclick="testTelegram()">测试推送</button>
+      <span id="tg-msg" class="msg"></span>
     </div>
   </div>
 </div>
@@ -1309,6 +1744,36 @@ async function sendNow() {
   const data = await resp.json();
   showMsg('send-msg', data.ok, '发送完成: ' + data.sent + ' 封成功' + (data.errors.length > 0 ? ', ' + data.errors.length + ' 个错误' : ''));
 }
+
+// Telegram
+(async function loadTelegramConfig() {
+  const resp = await fetch('/api/telegram/config');
+  const data = await resp.json();
+  if (data.ok && data.config.bot_token) {
+    document.getElementById('tg-token').value = data.config.bot_token;
+    document.getElementById('tg-chatid').value = data.config.chat_id;
+  }
+})();
+
+async function saveTelegram() {
+  const bot_token = document.getElementById('tg-token').value.trim();
+  const chat_id = document.getElementById('tg-chatid').value.trim();
+  const resp = await fetch('/api/telegram/config', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({bot_token, chat_id})
+  });
+  const data = await resp.json();
+  showMsg('tg-msg', data.ok, data.ok ? 'Telegram 配置已保存' : '保存失败');
+}
+
+async function testTelegram() {
+  document.getElementById('tg-msg').textContent = '正在测试...';
+  document.getElementById('tg-msg').className = 'msg';
+  document.getElementById('tg-msg').style.display = 'block';
+  const resp = await fetch('/api/telegram/test', { method: 'POST' });
+  const data = await resp.json();
+  showMsg('tg-msg', data.ok, data.ok ? '测试成功！请检查 Telegram' : '测试失败: ' + data.message);
+}
 </script>
 </body>
 </html>
@@ -1372,6 +1837,23 @@ def translate_results(results):
         snippet = r.get("content", "")
         if snippet:
             r["content"] = translated[i * 2 + 1] if i * 2 + 1 < len(translated) else snippet[:200]
+
+
+def highlight_text(text, query):
+    """Wrap query terms in <mark> tags for keyword highlighting."""
+    if not query or not text:
+        return text
+    import re as _re
+    terms = _re.split(r'\s+', query.strip())
+    for term in terms:
+        if len(term) > 1:
+            text = _re.sub(
+                f'({_re.escape(term)})',
+                r'<mark>\1</mark>',
+                str(text),
+                flags=_re.IGNORECASE
+            )
+    return text
 
 
 def _is_within_months(date_str, months=3):
@@ -1607,6 +2089,8 @@ def index():
 
     query = request.args.get("q", "").strip()
     source_filter = request.args.get("source", "").strip()
+    date_from = request.args.get("date_from", "").strip()
+    date_to = request.args.get("date_to", "").strip()
     action = request.args.get("action", "search")
     page = int(request.args.get("page", 1))
     per_page = 50
@@ -1649,13 +2133,24 @@ def index():
         query = "[毒品新闻筛选]"
 
     else:
-        sf = source_filter if source_filter else None
-        all_articles = get_cached_articles(source=sf, months=3)
+        # Multi-source filter: comma-separated
+        if source_filter and "," in source_filter:
+            source_list = [s.strip() for s in source_filter.split(",") if s.strip()]
+            all_articles = get_cached_articles(source=None, months=3)
+            all_articles = [a for a in all_articles if a.get("source") in source_list]
+        else:
+            sf = source_filter if source_filter else None
+            all_articles = get_cached_articles(source=sf, months=3)
         if query:
             qlower = query.lower()
             all_articles = [a for a in all_articles
                           if qlower in (a.get("title") or "").lower()
                           or qlower in (a.get("content") or "").lower()]
+        # Date range filter
+        if date_from:
+            all_articles = [a for a in all_articles if (a.get("date") or "0000") >= date_from]
+        if date_to:
+            all_articles = [a for a in all_articles if (a.get("date") or "9999") <= date_to]
         all_articles.sort(key=lambda x: x.get("date") or "0000-00-00", reverse=True)
         count = len(all_articles)
         results = all_articles[offset:offset + per_page]
@@ -1669,6 +2164,10 @@ def index():
 
     if results:
         translate_results(results)
+        if query:
+            for r in results:
+                r["title"] = highlight_text(r.get("title", ""), query)
+                r["content"] = highlight_text(r.get("content", ""), query)
 
     crawler_status = {
         "running": _auto_crawler["running"],
@@ -1685,6 +2184,8 @@ def index():
     return render_template_string(
         TEMPLATE,
         query=query,
+        date_from=date_from,
+        date_to=date_to,
         results=results,
         total_results=count,
         page=page,
@@ -1699,6 +2200,60 @@ def index():
         crawler=crawler_status,
         ai_enabled=bool(DEEPSEEK_API_KEY),
     )
+
+
+@app.route("/api/article/detail")
+def api_article_detail():
+    """Get full article content + AI analysis. Called by detail modal JS."""
+    from urllib.parse import unquote
+    import base64
+    url = request.args.get("url", "").strip()
+    if not url:
+        return jsonify({"ok": False, "error": "no url"})
+    # Find article in cache
+    with _cache_lock:
+        art = _article_cache.get(url)
+    if not art:
+        # Try to fetch live
+        for site in SITES:
+            from memory_crawler import quick_parse
+            parsed = quick_parse(site, url)
+            if parsed:
+                art = parsed
+                break
+    if not art:
+        return jsonify({"ok": False, "error": "article not found"})
+
+    # AI analysis if DeepSeek is available
+    ai_analysis = ""
+    if DEEPSEEK_API_KEY:
+        try:
+            import requests as req
+            content = (art.get("_orig_content") or art.get("content", ""))[:1200]
+            title = art.get("_orig_title") or art.get("title", "")
+            resp = req.post(
+                "https://api.deepseek.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}"},
+                json={"model": "deepseek-chat", "messages": [
+                    {"role": "system", "content": "你是蒙古毒品情报分析专家。用中文简要分析这篇文章（200字以内）：1)涉及什么毒品 2)涉及哪些人物/地点 3)执法行动情况 4)威胁等级(低/中/高)。未知信息标注'未知'。"},
+                    {"role": "user", "content": f"标题：{title}\n\n内容：{content}"}
+                ]},
+                timeout=25
+            )
+            if resp.status_code == 200:
+                ai_analysis = resp.json()["choices"][0]["message"]["content"]
+        except Exception as e:
+            ai_analysis = f"(AI分析暂时不可用: {e})"
+
+    return jsonify({
+        "ok": True,
+        "title": art.get("title", ""),
+        "date": art.get("date", ""),
+        "source": art.get("source_label", ""),
+        "content": art.get("_orig_content") or art.get("content", ""),
+        "url": url,
+        "ai_analysis": ai_analysis,
+    })
 
 
 @app.route("/api/health")
@@ -1975,6 +2530,52 @@ def _trigger_crawl_job():
         _auto_crawler["last_push_time"] = datetime.now()
         print(f"[触发推送] 完成: {result['sent']} 封成功")
 
+        # Telegram push
+        try:
+            from drug_ai import DrugAnalyzer
+            all_arts = get_cached_articles(months=3)
+            analyzer = DrugAnalyzer()
+            drug_arts = []
+            for a in all_arts:
+                ti = a.get("title") or ""
+                co = a.get("content") or ""
+                an = analyzer.analyze(ti, co, a.get("source"))
+                if an["is_drug"]:
+                    a["drug_score"] = an["score"]
+                    a["drug_confidence"] = an["confidence"]
+                    a["drug_types"] = an.get("drug_types", [])
+                    drug_arts.append(a)
+            if drug_arts:
+                drug_arts.sort(key=lambda x: -x.get("drug_score", 0))
+                ok, msg = send_telegram_drug_alert(drug_arts, top_n=10)
+                print(f"[Telegram推送] {'成功' if ok else '失败'}: {msg}")
+        except Exception as e:
+            print(f"[Telegram推送] 错误: {e}")
+
+        # Auto-generate intelligence report
+        try:
+            from report_generator import generate_intelligence_report
+            from drug_ai import DrugAnalyzer
+            all_arts = get_cached_articles(months=3)
+            analyzer = DrugAnalyzer()
+            drug_arts = []
+            for a in all_arts:
+                ti = a.get("title") or ""
+                co = a.get("content") or ""
+                an = analyzer.analyze(ti, co, a.get("source"))
+                if an["is_drug"]:
+                    a["drug_score"] = an["score"]
+                    a["drug_confidence"] = an["confidence"]
+                    a["drug_types"] = an.get("drug_types", [])
+                    drug_arts.append(a)
+            if drug_arts:
+                drug_arts.sort(key=lambda x: -x.get("drug_score", 0))
+                rpt = generate_intelligence_report(drug_arts)
+                save_report(rpt["title"], rpt["content"], rpt["article_count"], rpt["date_start"], rpt["date_end"])
+                print(f"[自动报告] 已生成情报报告: {rpt['title']}")
+        except Exception as e:
+            print(f"[自动报告] 生成失败: {e}")
+
     except Exception as e:
         print(f"[触发爬取] 错误: {e}")
     finally:
@@ -2023,6 +2624,28 @@ def api_crawler_status():
 
 # ===================== Schedule Routes =====================
 
+@app.route("/api/telegram/config", methods=["GET"])
+def api_telegram_get():
+    cfg = get_telegram_config()
+    cfg["bot_token"] = "***" if cfg.get("bot_token") else ""
+    return jsonify({"ok": True, "config": cfg})
+
+
+@app.route("/api/telegram/config", methods=["POST"])
+def api_telegram_save():
+    data = request.get_json()
+    save_telegram_config(
+        bot_token=(data.get("bot_token") or "").strip(),
+        chat_id=(data.get("chat_id") or "").strip(),
+    )
+    return jsonify({"ok": True})
+
+
+@app.route("/api/telegram/test", methods=["POST"])
+def api_telegram_test():
+    ok, msg = send_telegram_message("<b>🧪 Telegram 推送测试</b>\n\n来自蒙古毒品情报系统的测试消息。\n如果收到此消息，说明配置正确。")
+    return jsonify({"ok": ok, "message": msg})
+
 @app.route("/api/schedule/list")
 def api_schedule_list():
     schedules = get_push_schedules()
@@ -2046,6 +2669,82 @@ def api_schedule_delete():
 
 
 # ===================== Settings Page =====================
+
+@app.route("/stats")
+def stats_page():
+    cache_total = get_cache_size()
+    cache_sources = get_cache_stats()
+    stats = {"total": cache_total, "sources": [{"source_label": k, "cnt": v} for k, v in sorted(cache_sources.items(), key=lambda x: -x[1])]}
+    progress = min(100, int(stats.get("total", 0) / 500 * 100))
+    return render_template_string(
+        STATS_PAGE,
+        stats=stats,
+        progress=progress,
+    )
+
+
+@app.route("/api/stats")
+def api_stats():
+    """Return detailed statistics for the dashboard."""
+    from collections import Counter, defaultdict
+    from drug_ai import DrugAnalyzer
+
+    all_articles = get_cached_articles(months=3)
+    cache_total = get_cache_size()
+    cache_sources = get_cache_stats()
+
+    # Source distribution
+    source_dist = {k: v for k, v in sorted(cache_sources.items(), key=lambda x: -x[1])[:15]}
+
+    # Drug type distribution
+    analyzer = DrugAnalyzer()
+    drug_type_counter = Counter()
+    drug_article_count = 0
+    high_risk_count = 0
+    daily_counts = defaultdict(int)
+
+    for a in all_articles:
+        date_str = str(a.get("date", ""))[:10]
+        if date_str:
+            daily_counts[date_str] += 1
+
+        title = a.get("title") or ""
+        content = a.get("content") or ""
+        analysis = analyzer.analyze(title, content, a.get("source"))
+        if analysis["is_drug"]:
+            drug_article_count += 1
+            if analysis["score"] >= 60:
+                high_risk_count += 1
+            for dt in analysis.get("drug_types", []):
+                drug_type_counter[dt] += 1
+
+    # Sort daily counts and get last 30 days
+    daily_sorted = sorted(daily_counts.items())[-30:]
+    daily_labels = [d[0] for d in daily_sorted]
+    daily_values = [d[1] for d in daily_sorted]
+
+    # Crawler status
+    crawler_info = {
+        "running": _auto_crawler["running"],
+        "is_crawling": _auto_crawler["is_crawling"],
+        "last_crawl": str(_auto_crawler["last_crawl"]) if _auto_crawler["last_crawl"] else None,
+        "last_count": _auto_crawler["last_crawl_count"],
+        "total_today": _auto_crawler["total_new_today"],
+        "last_push": str(_auto_crawler["last_push_time"]) if _auto_crawler["last_push_time"] else None,
+        "interval_hours": _auto_crawler["interval_minutes"] / 60,
+    }
+
+    return jsonify({
+        "ok": True,
+        "total_articles": cache_total,
+        "drug_articles": drug_article_count,
+        "high_risk": high_risk_count,
+        "source_distribution": source_dist,
+        "drug_types": dict(drug_type_counter.most_common(10)),
+        "daily_labels": daily_labels,
+        "daily_values": daily_values,
+        "crawler": crawler_info,
+    })
 
 @app.route("/settings")
 def settings_page():

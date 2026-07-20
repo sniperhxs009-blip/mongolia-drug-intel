@@ -24,6 +24,8 @@ _DEFAULT_SETTINGS = {
     },
     "push_schedules": [],
     "_next_schedule_id": 1,
+    "telegram_bot_token": "",
+    "telegram_chat_id": "",
 }
 
 
@@ -219,6 +221,22 @@ def get_report_by_id(report_id):
         if r.get("id") == int(report_id):
             return r
     return None
+
+
+# --- Telegram Config ---
+
+def get_telegram_config():
+    data = _read_settings()
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", data.get("telegram_bot_token", ""))
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", data.get("telegram_chat_id", ""))
+    return {"bot_token": token, "chat_id": chat_id}
+
+
+def save_telegram_config(bot_token, chat_id):
+    data = _read_settings()
+    data["telegram_bot_token"] = bot_token
+    data["telegram_chat_id"] = chat_id
+    _write_settings(data)
 
 
 # --- Migration ---
