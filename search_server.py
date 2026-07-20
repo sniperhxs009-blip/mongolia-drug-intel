@@ -37,6 +37,13 @@ def _start_crawler_thread():
     print("[启动] 后台自动爬虫线程已启动")
 
 
+@app.errorhandler(500)
+def _handle_500(e):
+    import traceback
+    tb = traceback.format_exc()
+    return f"<pre>500 Error:\n{tb}</pre>", 500
+
+
 @app.before_request
 def _ensure_crawler_running():
     """Start crawler thread on first HTTP request (handles gunicorn import case)."""
