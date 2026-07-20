@@ -1,0 +1,20 @@
+name: Wake Up Render Crawler (12-Hour Cycle)
+
+on:
+  schedule:
+    # UTC 时间: 每天 00:00 和 12:00 触发
+    # 对应北京时间: 08:00 和 20:00
+    - cron: "0 0,12 * * *"
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger crawl on Render
+        run: |
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://mongolia-drug-intel.onrender.com/api/trigger-crawl")
+          echo "Render response: HTTP $HTTP_CODE"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Wake-up call returned $HTTP_CODE, but this is OK - the service may be cold-starting"
+          fi
