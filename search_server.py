@@ -601,25 +601,25 @@ body {
   <div class="results">
     {% for r in results %}
     <div class="card">
-      <h3><a href="{{ r.url }}" target="_blank">{{ r.title }}</a></h3>
+      <h3><a href="{{ r.url }}" target="_blank">{{ r.title or '(无标题)' }}</a></h3>
       <div class="meta">
         <span class="pub-date">{{ r.date or '' }}</span>
         <span class="source-tag" style="background:{{ source_colors.get(r.source, 'rgba(56,189,248,0.1)') }};color:{{ source_text_colors.get(r.source, '#38bdf8') }}">{{ r.source_label or r.source }}</span>
         {% if r.category %}<span style="font-size:10px;color:var(--text-muted)">{{ r.category }}</span>{% endif %}
         {% if r.matched_keywords %}
-        <span class="drug-badge" style="background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.2);">🎯 {{ r.drug_score }}分 | {{ r.matched_keywords[:2]|join(', ') }}</span>
+        <span class="drug-badge" style="background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.2);">🎯 {{ r.drug_score }}分 | {{ (r.matched_keywords or [])[:2]|join(', ') }}</span>
         {% endif %}
         {% if r.drug_stage %}
         <span class="drug-badge" style="background:rgba(147,51,234,0.15);color:#a78bfa;border:1px solid rgba(147,51,234,0.2);">🤖 {{ r.drug_stage }} | {{ r.drug_confidence }}</span>
         {% endif %}
         {% if r.drug_types %}
-        <span class="drug-badge" style="background:rgba(34,197,94,0.15);color:#4ade80;border:1px solid rgba(34,197,94,0.2);">{{ r.drug_types[:3]|join(', ') }}</span>
+        <span class="drug-badge" style="background:rgba(34,197,94,0.15);color:#4ade80;border:1px solid rgba(34,197,94,0.2);">{{ (r.drug_types or [])[:3]|join(', ') }}</span>
         {% endif %}
         {% if r.drug_action %}
         <span style="font-size:10px;color:var(--accent2);font-weight:600;">{{ r.drug_action }}</span>
         {% endif %}
       </div>
-      <div class="snippet">{{ r.content[:250] }}{% if r.content|length > 250 %}...{% endif %}</div>
+      <div class="snippet">{{ (r.content or '')[:250] }}{% if (r.content or '')|length > 250 %}...{% endif %}</div>
     </div>
     {% endfor %}
   </div>
@@ -1685,39 +1685,6 @@ def index():
         crawler=crawler_status,
         ai_enabled=bool(DEEPSEEK_API_KEY),
     )
-
-
-@app.route("/debug-template")
-def debug_template():
-    """Render the main TEMPLATE with same data as index() to debug 500 error."""
-    try:
-        source_colors = SOURCE_COLORS
-        source_text_colors = SOURCE_TEXT_COLORS
-        crawler_status = {
-            "running": True,
-            "last_crawl": None,
-            "last_count": 0,
-            "next_crawl": None,
-            "current_site": "",
-            "interval_h": 12.0,
-            "last_push": None,
-            "is_crawling": False,
-        }
-        return render_template_string(
-            TEMPLATE,
-            query="", results=[], total_results=0, page=1, per_page=50,
-            stats={"total": 0, "sources": []},
-            all_sources=SITES,
-            current_source="",
-            source_colors=source_colors,
-            source_text_colors=source_text_colors,
-            progress=0, loading=False,
-            crawler=crawler_status,
-            ai_enabled=False,
-        )
-    except Exception as e:
-        import traceback
-        return f"<pre>Error: {e}\n\n{traceback.format_exc()}</pre>", 500
 
 
 @app.route("/api/health")
