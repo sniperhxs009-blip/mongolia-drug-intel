@@ -68,6 +68,13 @@ def _write_reports(data):
 def get_email_recipients(enabled_only=True):
     data = _read_settings()
     recips = data.get("email_recipients", [])
+    # Merge recipients from EMAIL_RECIPIENTS env var (comma-separated, survives Render sleep)
+    env_emails = os.environ.get("EMAIL_RECIPIENTS", "")
+    if env_emails:
+        for e in env_emails.split(","):
+            e = e.strip().lower()
+            if e and "@" in e and not any(r["email"] == e for r in recips):
+                recips.append({"email": e, "enabled": True})
     if enabled_only:
         return [r for r in recips if r.get("enabled", True)]
     return recips
