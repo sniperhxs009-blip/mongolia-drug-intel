@@ -1684,6 +1684,7 @@ def index():
         "interval_h": _auto_crawler["interval_minutes"] / 60,
         "last_push": _auto_crawler["last_push_time"],
         "is_crawling": _auto_crawler["is_crawling"],
+        "alert_count": _auto_crawler.get("alert_count", 0),
     }
 
     return render_template_string(
