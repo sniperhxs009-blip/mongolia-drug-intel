@@ -85,9 +85,19 @@ def _auto_crawl_loop():
         now = datetime.now()
 
         with _auto_crawler["crawl_lock"]:
-            _auto_crawler["is_crawling"] = True
+            if _auto_crawler["is_crawling"]:
+                skip = True
+            else:
+                _auto_crawler["is_crawling"] = True
+                skip = False
             _auto_crawler["next_crawl"] = now + timedelta(seconds=crawl_interval)
             _auto_crawler["current_site"] = ""
+
+        if skip:
+            # Sleep in small increments, checking if crawl finished
+            for _ in range(crawl_interval // 30):
+                time.sleep(30)
+            continue
 
         pre_count = get_cache_size()
         total_new = 0
