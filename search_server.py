@@ -2744,16 +2744,18 @@ def main():
     # Run settings migration from old SQLite DB (idempotent — only if JSON has no real data)
     migrate_from_sqlite()
 
-    # Translate any cached articles that aren't already Chinese (catch-up from previous runs)
-    with _cache_lock:
-        existing = list(_article_cache.values())
-    if existing:
-        try:
-            n = translate_articles_batch(existing)
-            if n > 0:
-                print(f"[启动] 已为 {n} 篇缓存文章补翻译为中文")
-        except Exception as e:
-            print(f"[启动] 补翻译失败: {e}")
+    # Translate cached articles in background (don't block server startup)
+    def _catchup_translate():
+        with _cache_lock:
+            existing = list(_article_cache.values())
+        if existing:
+            try:
+                n = translate_articles_batch(existing)
+                if n > 0:
+                    print(f"[启动] 已为 {n} 篇缓存文章补翻译为中文")
+            except Exception as e:
+                print(f"[启动] 补翻译失败: {e}")
+    threading.Thread(target=_catchup_translate, daemon=True).start()
 
     # Start auto-crawler daemon thread
     _start_crawler_thread()
