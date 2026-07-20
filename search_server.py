@@ -379,37 +379,6 @@ body {
 }
 .search-box select option { background: #0f172a; color: #e2e8f0; }
 
-/* Multi-select dropdown */
-.multi-select-wrap { position: relative; min-width: 130px; }
-.multi-select-btn {
-  width: 100%; padding: 12px 14px; background: rgba(15, 23, 42, 0.8);
-  color: var(--text); border: 1px solid var(--border); border-radius: 10px;
-  font-size: 13px; cursor: pointer; font-family: inherit; text-align: left;
-  display: flex; justify-content: space-between; align-items: center; gap: 8px;
-  transition: all 0.3s; white-space: nowrap;
-}
-.multi-select-btn:hover, .multi-select-btn:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(56,189,248,0.1); }
-.multi-select-btn .arrow { font-size: 10px; color: var(--text-muted); transition: transform 0.2s; }
-.multi-select-btn.open .arrow { transform: rotate(180deg); }
-.multi-select-panel {
-  display: none; position: absolute; top: 100%; left: 0; z-index: 100;
-  background: #0f172a; border: 1px solid var(--border); border-radius: 10px;
-  max-height: 340px; overflow-y: auto; margin-top: 4px; padding: 6px 0;
-  box-shadow: 0 10px 40px rgba(0,0,0,0.5);
-  min-width: max(220px, 100%);
-}
-.multi-select-panel.show { display: block; }
-.multi-select-item {
-  display: flex; align-items: center; gap: 8px; padding: 8px 14px;
-  cursor: pointer; font-size: 13px; color: var(--text); transition: background 0.15s;
-  white-space: nowrap;
-}
-.multi-select-item:hover { background: rgba(56,189,248,0.08); }
-.multi-select-item input[type="checkbox"] {
-  width: 16px; height: 16px; accent-color: #38bdf8; cursor: pointer; flex-shrink: 0;
-}
-.multi-select-item span { overflow: hidden; text-overflow: ellipsis; }
-
 .btn {
   padding: 12px 20px; border: 1px solid transparent; border-radius: 10px;
   font-size: 13px; cursor: pointer; font-weight: 600; font-family: inherit;
@@ -616,27 +585,6 @@ mark { background: #fbbf24; color: #000; padding: 0 2px; border-radius: 2px; }
     <div style="display:flex;gap:8px;flex:1;min-width:200px;">
       <input type="text" name="q" value="{{ query }}" placeholder="搜索关键词..." style="flex:1;padding:8px 12px;background:rgba(15,23,42,0.8);border:1px solid var(--border);border-radius:8px;color:var(--text);min-width:150px;">
     </div>
-    <div class="multi-select-wrap" id="source-dropdown">
-      <button type="button" class="multi-select-btn" onclick="toggleSourceDropdown()" id="source-btn">
-        <span id="source-btn-text">全部来源</span>
-        <span class="arrow">▼</span>
-      </button>
-      <div class="multi-select-panel" id="source-panel">
-        <label class="multi-select-item" onclick="event.stopPropagation()">
-          <input type="checkbox" id="source-all" onchange="toggleAllSources(this)" checked>
-          <span>全部来源</span>
-        </label>
-        {% for s in all_sources %}
-        <label class="multi-select-item" onclick="event.stopPropagation()">
-          <input type="checkbox" class="source-cb" value="{{ s.name }}" onchange="updateSourceSelect()" {% if not current_source or s.name in current_source.split(',') %}checked{% endif %}>
-          <span>{{ s.label }}</span>
-        </label>
-        {% endfor %}
-      </div>
-      <input type="hidden" name="source" id="source-hidden" value="{{ current_source or '' }}">
-    </div>
-    <input type="date" name="date_from" value="{{ date_from or '' }}" title="起始日期" style="padding:6px 8px;background:rgba(15,23,42,0.8);border:1px solid var(--border);border-radius:8px;color:var(--text);max-width:130px;">
-    <input type="date" name="date_to" value="{{ date_to or '' }}" title="结束日期" style="padding:6px 8px;background:rgba(15,23,42,0.8);border:1px solid var(--border);border-radius:8px;color:var(--text);max-width:130px;">
     <input type="hidden" name="page" value="1">
     <button type="submit" class="btn" style="background:rgba(56,189,248,0.15);color:#38bdf8;border-color:rgba(56,189,248,0.3);">🔍 搜索</button>
     <button type="button" id="btn-live" class="btn btn-live" onclick="startLiveFetch()">实时抓取</button>
@@ -743,11 +691,11 @@ mark { background: #fbbf24; color: #000; padding: 0 2px; border-radius: 2px; }
 
   <div class="pagination">
     {% if page > 1 %}
-    <a href="?q={{ query or '' }}&source={{ current_source or '' }}&date_from={{ date_from or '' }}&date_to={{ date_to or '' }}&page={{ page - 1 }}&action={{ request.args.get('action','') }}">← 上一页</a>
+    <a href="?q={{ query or '' }}&source={{ current_source or '' }}&page={{ page - 1 }}&action={{ request.args.get('action','') }}">← 上一页</a>
     {% endif %}
     <span class="active">第 {{ page }} 页</span>
     {% if page * per_page < total_results %}
-    <a href="?q={{ query or '' }}&source={{ current_source or '' }}&date_from={{ date_from or '' }}&date_to={{ date_to or '' }}&page={{ page + 1 }}&action={{ request.args.get('action','') }}">下一页 →</a>
+    <a href="?q={{ query or '' }}&source={{ current_source or '' }}&page={{ page + 1 }}&action={{ request.args.get('action','') }}">下一页 →</a>
     {% endif %}
   </div>
 
@@ -821,50 +769,6 @@ let liveArticleCount = 0;
   }
 
 })();
-
-// --- Multi-source checkbox dropdown ---
-function toggleSourceDropdown() {
-  var panel = document.getElementById('source-panel');
-  var btn = document.getElementById('source-btn');
-  panel.classList.toggle('show');
-  btn.classList.toggle('open');
-}
-
-function toggleAllSources(cb) {
-  var cbs = document.querySelectorAll('.source-cb');
-  cbs.forEach(function(c) { c.checked = cb.checked; });
-  updateSourceSelect();
-}
-
-function updateSourceSelect() {
-  var cbs = document.querySelectorAll('.source-cb');
-  var allCb = document.getElementById('source-all');
-  var hidden = document.getElementById('source-hidden');
-  var btnText = document.getElementById('source-btn-text');
-  var checked = [];
-  cbs.forEach(function(c) {
-    if (c.checked) checked.push(c.value);
-  });
-  allCb.checked = checked.length === cbs.length;
-  hidden.value = checked.join(',');
-  if (checked.length === 0 || checked.length === cbs.length) {
-    btnText.textContent = '全部来源';
-  } else if (checked.length === 1) {
-    var label = document.querySelector('.source-cb[value="' + checked[0] + '"]').parentElement.querySelector('span').textContent;
-    btnText.textContent = label;
-  } else {
-    btnText.textContent = '已选 ' + checked.length + ' 个来源';
-  }
-}
-
-// Close dropdown when clicking outside
-document.addEventListener('click', function(e) {
-  var wrap = document.getElementById('source-dropdown');
-  if (wrap && !wrap.contains(e.target)) {
-    document.getElementById('source-panel').classList.remove('show');
-    document.getElementById('source-btn').classList.remove('open');
-  }
-});
 
 function startLiveFetch() {
   // Reset
@@ -2166,8 +2070,6 @@ def index():
 
     query = request.args.get("q", "").strip()
     source_filter = request.args.get("source", "").strip()
-    date_from = request.args.get("date_from", "").strip()
-    date_to = request.args.get("date_to", "").strip()
     action = request.args.get("action", "search")
     page = int(request.args.get("page", 1))
     per_page = 50
@@ -2223,11 +2125,6 @@ def index():
             all_articles = [a for a in all_articles
                           if qlower in (a.get("title") or "").lower()
                           or qlower in (a.get("content") or "").lower()]
-        # Date range filter
-        if date_from:
-            all_articles = [a for a in all_articles if (a.get("date") or "0000") >= date_from]
-        if date_to:
-            all_articles = [a for a in all_articles if (a.get("date") or "9999") <= date_to]
         all_articles.sort(key=lambda x: x.get("date") or "0000-00-00", reverse=True)
         count = len(all_articles)
         results = all_articles[offset:offset + per_page]
@@ -2261,8 +2158,6 @@ def index():
     return render_template_string(
         TEMPLATE,
         query=query,
-        date_from=date_from,
-        date_to=date_to,
         results=results,
         total_results=count,
         page=page,
