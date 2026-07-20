@@ -1668,23 +1668,27 @@ def index():
         "is_crawling": _auto_crawler["is_crawling"],
     }
 
-    return render_template_string(
-        TEMPLATE,
-        query=query,
-        results=results,
-        total_results=count,
-        page=page,
-        per_page=per_page,
-        stats=stats,
-        all_sources=all_sources,
-        current_source=source_filter,
-        source_colors=source_colors,
-        source_text_colors=source_text_colors,
-        progress=progress,
-        loading=False,
-        crawler=crawler_status,
-        ai_enabled=bool(DEEPSEEK_API_KEY),
-    )
+    try:
+        return render_template_string(
+            TEMPLATE,
+            query=query,
+            results=results,
+            total_results=count,
+            page=page,
+            per_page=per_page,
+            stats=stats,
+            all_sources=all_sources,
+            current_source=source_filter,
+            source_colors=source_colors,
+            source_text_colors=source_text_colors,
+            progress=progress,
+            loading=False,
+            crawler=crawler_status,
+            ai_enabled=bool(DEEPSEEK_API_KEY),
+        )
+    except Exception as e:
+        import traceback
+        return f"<pre>Template Error: {e}\n{traceback.format_exc()}</pre>", 500
 
 
 @app.route("/api/health")
