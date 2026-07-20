@@ -23,22 +23,45 @@ from bs4 import BeautifulSoup
 
 app = Flask(__name__)
 
+# --- Auto-crawler daemon starter (works for both `python search_server.py` and gunicorn) ---
+_crawler_thread_started = False
+
+
+def _start_crawler_thread():
+    global _crawler_thread_started
+    if _crawler_thread_started:
+        return
+    _crawler_thread_started = True
+    t = threading.Thread(target=_auto_crawl_loop, daemon=True, name="auto-crawler")
+    t.start()
+    print("[启动] 后台自动爬虫线程已启动")
+
+
+@app.before_request
+def _ensure_crawler_running():
+    """Start crawler thread on first HTTP request (handles gunicorn import case)."""
+    _start_crawler_thread()
+
+
 # --- Auto-crawler background thread ---
 _auto_crawler = {
     "running": False,
     "last_crawl": None,         # datetime
     "last_crawl_count": 0,      # new articles found in last crawl
     "next_crawl": None,         # datetime
-    "interval_minutes": int(os.environ.get("AUTO_CRAWL_INTERVAL", "3")),
+    "interval_minutes": int(os.environ.get("AUTO_CRAWL_INTERVAL", "720")),
     "current_site": "",         # which site is being crawled now
     "total_new_today": 0,       # total new articles found today
     "last_alert_time": None,    # last instant alert datetime
     "alert_count_today": 0,     # number of instant alerts sent today
+    "last_push_time": None,     # last email push datetime
+    "is_crawling": False,       # prevent concurrent crawls
+    "crawl_lock": threading.Lock(),
 }
 
 def _auto_crawl_loop():
-    """Background daemon: real-time monitoring - crawl every few minutes,
-    AI-analyze new articles instantly, push drug alerts immediately."""
+    """Background daemon: crawl every N hours, push drug intel email after each cycle.
+    Works independently of browser — server process must be running."""
     from drug_ai import DrugAnalyzer
 
     _auto_crawler["running"] = True
@@ -46,23 +69,21 @@ def _auto_crawl_loop():
     analyzer = DrugAnalyzer()
     all_keywords = get_all_keywords()
 
-    time.sleep(30)
+    time.sleep(30)  # Initial delay to let server start
 
     session = requests.Session()
     session.headers.update(memory_crawler.HEADERS)
 
-    last_daily_push_date = None
-
     while True:
         now = datetime.now()
 
-        # ---- Crawl Phase ----
-        _auto_crawler["next_crawl"] = now + timedelta(seconds=crawl_interval)
-        _auto_crawler["current_site"] = ""
+        with _auto_crawler["crawl_lock"]:
+            _auto_crawler["is_crawling"] = True
+            _auto_crawler["next_crawl"] = now + timedelta(seconds=crawl_interval)
+            _auto_crawler["current_site"] = ""
 
         pre_count = get_cache_size()
         total_new = 0
-        new_article_urls = []
 
         for site in SITES:
             if site.get("requires_js"):
@@ -74,10 +95,6 @@ def _auto_crawl_loop():
                 total_new += new_count
                 if new_count > 0:
                     print(f"[实时监控] {site['label']}: +{new_count} 篇新文章")
-                    # Track new URLs for alert analysis
-                    for art in arts:
-                        if art.get("url") and not is_in_cache(art["url"]):
-                            pass  # already added by mc_crawl_site
             except Exception as e:
                 print(f"[实时监控] {site['label']}: 错误 - {e}")
             time.sleep(0.5)
@@ -86,12 +103,11 @@ def _auto_crawl_loop():
         _auto_crawler["last_crawl_count"] = total_new
         _auto_crawler["total_new_today"] += total_new
         _auto_crawler["current_site"] = ""
-        print(f"[实时监控] 第 {_auto_crawler['total_new_today']} 轮完成: 抓取 {total_new} 篇新文章, {len(SITES)} 个站点")
+        print(f"[实时监控] 爬取完成: +{total_new} 篇新文章, 共 {len(SITES)} 个站点")
 
-        # ---- Instant Drug Alert Phase ----
+        # ---- Instant Drug Alert (if new articles found) ----
         if total_new > 0:
             try:
-                # Get newly added articles since pre_count
                 with _cache_lock:
                     cache_values = list(_article_cache.values())
                     new_articles = cache_values[pre_count:] if pre_count < len(cache_values) else []
@@ -114,7 +130,6 @@ def _auto_crawl_loop():
                             d["matched_keywords"] = analysis.get("keywords", [])
                             drug_hits.append(d)
 
-
                     if drug_hits:
                         drug_hits.sort(key=lambda x: -x["drug_score"])
                         print(f"[实时预警] 发现 {len(drug_hits)} 篇涉毒文章，立即推送!")
@@ -123,31 +138,25 @@ def _auto_crawl_loop():
                             _auto_crawler["last_alert_time"] = datetime.now()
                             _auto_crawler["alert_count_today"] += 1
                             print(f"[实时预警] 推送完成: {result['sent']} 封成功")
-                            for err in result.get("errors", []):
-                                print(f"[实时预警] 错误: {err}")
                         except Exception as e:
                             print(f"[实时预警] 推送失败: {e}")
             except Exception as e:
                 print(f"[实时预警] 分析失败: {e}")
 
-        # ---- Daily Digest Phase ----
-        today_str = now.strftime("%Y-%m-%d")
-        schedules = get_push_schedules()
-        for s in schedules:
-            push_key = f"daily_{today_str}_{s['hour']:02d}:{s['minute']:02d}"
-            if last_daily_push_date == push_key:
-                continue
-            if now.hour == s["hour"] and now.minute >= s["minute"] and now.minute < s["minute"] + crawl_interval // 60:
-                print(f"[每日推送] 定时推送触发 ({s['hour']:02d}:{s['minute']:02d})")
-                last_daily_push_date = push_key
-                try:
-                    result = send_drug_intel_email()
-                    print(f"[每日推送] 发送完成: {result['sent']} 封成功")
-                except Exception as e:
-                    print(f"[每日推送] 失败: {e}")
+        # ---- Email Digest Push (after every crawl cycle) ----
+        print(f"[定时推送] 爬取完成，发送涉毒情报邮件...")
+        try:
+            result = send_drug_intel_email()
+            _auto_crawler["last_push_time"] = datetime.now()
+            print(f"[定时推送] 发送完成: {result['sent']} 封成功, {len(result.get('errors', []))} 个错误")
+        except Exception as e:
+            print(f"[定时推送] 失败: {e}")
+
+        with _auto_crawler["crawl_lock"]:
+            _auto_crawler["is_crawling"] = False
 
         # ---- Sleep until next crawl ----
-        # Sleep in 30-second chunks to be responsive to shutdown
+        print(f"[实时监控] 下次爬取: {(datetime.now() + timedelta(seconds=crawl_interval)).strftime('%Y-%m-%d %H:%M:%S')}")
         for _ in range(crawl_interval // 30):
             time.sleep(30)
 
@@ -554,7 +563,7 @@ body {
           {% endif %}
         </div>
         <div class="stat-label" style="color:#f87171;">
-          实时监控 · 每{{ crawler.interval_m }}分钟
+          实时监控 · 每{{ "%.0f"|format(crawler.interval_h) }}小时
           {% if crawler.alert_count > 0 %}
           · 今日预警 {{ crawler.alert_count }} 次
           {% endif %}
@@ -1565,7 +1574,7 @@ def live_fetch_site(site, max_arts=200, months=3):
     try:
         arts, new_count = mc_crawl_site(site, max_articles=max_arts, months=months,
                                         max_seconds=30, max_pages=8)
-        arts.sort(key=lambda x: x.get("date") or "", reverse=True)
+        arts.sort(key=lambda x: x.get("date") or "0000-00-00", reverse=True)
         return arts, new_count
     except Exception:
         return [], 0
@@ -1573,6 +1582,14 @@ def live_fetch_site(site, max_arts=200, months=3):
 
 @app.route("/")
 def index():
+    # Lazy crawl trigger: if last crawl was > interval hours ago, trigger crawl in background
+    # This ensures Render free tier wakes up and crawls on first visit after sleep
+    last = _auto_crawler["last_crawl"]
+    interval_seconds = _auto_crawler["interval_minutes"] * 60
+    if last and (datetime.now() - last).total_seconds() > interval_seconds and not _auto_crawler["is_crawling"]:
+        print("[懒触发] 距上次爬取超过间隔，后台触发爬取...")
+        threading.Thread(target=_trigger_crawl_job, daemon=True).start()
+
     query = request.args.get("q", "").strip()
     source_filter = request.args.get("source", "").strip()
     action = request.args.get("action", "search")
@@ -1592,7 +1609,7 @@ def index():
             arts, n = live_fetch_site(site, max_arts=30)
             all_results.extend(arts)
             total_live += n
-        all_results.sort(key=lambda x: x.get("date") or "", reverse=True)
+        all_results.sort(key=lambda x: x.get("date") or "0000-00-00", reverse=True)
         count = len(all_results)
         results = all_results[offset:offset + per_page]
         cache_total = get_cache_size()  # Refresh
@@ -1626,7 +1643,7 @@ def index():
             all_articles = [a for a in all_articles
                           if qlower in (a.get("title") or "").lower()
                           or qlower in (a.get("content") or "").lower()]
-        all_articles.sort(key=lambda x: x.get("date") or "", reverse=True)
+        all_articles.sort(key=lambda x: x.get("date") or "0000-00-00", reverse=True)
         count = len(all_articles)
         results = all_articles[offset:offset + per_page]
 
@@ -1646,9 +1663,9 @@ def index():
         "last_count": _auto_crawler["last_crawl_count"],
         "next_crawl": _auto_crawler["next_crawl"],
         "current_site": _auto_crawler["current_site"],
-        "interval_m": _auto_crawler["interval_minutes"],
-        "last_alert": _auto_crawler["last_alert_time"],
-        "alert_count": _auto_crawler["alert_count_today"],
+        "interval_h": _auto_crawler["interval_minutes"] / 60,
+        "last_push": _auto_crawler["last_push_time"],
+        "is_crawling": _auto_crawler["is_crawling"],
     }
 
     return render_template_string(
@@ -1906,10 +1923,88 @@ def api_email_test():
     return jsonify({"ok": ok, "message": msg})
 
 
+def _trigger_crawl_job():
+    """Shared crawl+push job used by both lazy trigger and /api/trigger-crawl."""
+    try:
+        with _auto_crawler["crawl_lock"]:
+            if _auto_crawler["is_crawling"]:
+                return
+            _auto_crawler["is_crawling"] = True
+
+        from drug_ai import DrugAnalyzer
+        analyzer = DrugAnalyzer()
+        session = requests.Session()
+        session.headers.update(memory_crawler.HEADERS)
+
+        pre_count = get_cache_size()
+        total_new = 0
+
+        for site in SITES:
+            if site.get("requires_js"):
+                continue
+            try:
+                arts, new_count = mc_crawl_site(site, session, max_articles=200, months=3,
+                                                   max_seconds=60, max_pages=20)
+                total_new += new_count
+            except Exception as e:
+                print(f"[触发爬取] {site['label']}: 错误 - {e}")
+            time.sleep(0.5)
+
+        _auto_crawler["last_crawl"] = datetime.now()
+        _auto_crawler["last_crawl_count"] = total_new
+        _auto_crawler["total_new_today"] += total_new
+        print(f"[触发爬取] 完成: +{total_new} 篇新文章")
+
+        # Send email after crawl
+        print(f"[触发推送] 发送涉毒情报邮件...")
+        result = send_drug_intel_email()
+        _auto_crawler["last_push_time"] = datetime.now()
+        print(f"[触发推送] 完成: {result['sent']} 封成功")
+
+    except Exception as e:
+        print(f"[触发爬取] 错误: {e}")
+    finally:
+        with _auto_crawler["crawl_lock"]:
+            _auto_crawler["is_crawling"] = False
+
+
 @app.route("/api/email/send-now", methods=["POST"])
 def api_email_send_now():
     result = send_drug_intel_email(dry_run=False)
     return jsonify({"ok": result["sent"] > 0, "sent": result["sent"], "errors": result["errors"]})
+
+
+@app.route("/api/trigger-crawl", methods=["POST", "GET"])
+def api_trigger_crawl():
+    """Manually trigger a crawl + email push. Used by external cron/ping services."""
+    last = _auto_crawler["last_crawl"]
+    min_interval = _auto_crawler["interval_minutes"] * 60 // 2
+    if last and (datetime.now() - last).total_seconds() < min_interval:
+        remaining = int(min_interval - (datetime.now() - last).total_seconds())
+        return jsonify({"ok": False, "message": f"距离上次爬取不到{remaining // 60}分钟，跳过"})
+
+    if _auto_crawler["is_crawling"]:
+        return jsonify({"ok": False, "message": "爬取正在进行中"})
+
+    threading.Thread(target=_trigger_crawl_job, daemon=True).start()
+    return jsonify({"ok": True, "message": "爬取已触发，完成后将自动推送邮件"})
+
+
+@app.route("/api/crawler-status")
+def api_crawler_status():
+    """Return current crawler status for the frontend."""
+    last = _auto_crawler["last_crawl"]
+    next_crawl = _auto_crawler["next_crawl"]
+    return jsonify({
+        "running": _auto_crawler["running"],
+        "is_crawling": _auto_crawler["is_crawling"],
+        "last_crawl": str(last) if last else None,
+        "next_crawl": str(next_crawl) if next_crawl else None,
+        "last_count": _auto_crawler["last_crawl_count"],
+        "last_push": str(_auto_crawler["last_push_time"]) if _auto_crawler["last_push_time"] else None,
+        "interval_hours": _auto_crawler["interval_minutes"] / 60,
+        "current_site": _auto_crawler["current_site"],
+    })
 
 
 # ===================== Schedule Routes =====================
@@ -1960,6 +2055,9 @@ def settings_page():
 def main():
     import webbrowser
 
+    # Run settings migration from old SQLite DB (idempotent — only if JSON has no real data)
+    migrate_from_sqlite()
+
     # Translate any cached articles that aren't already Chinese (catch-up from previous runs)
     with _cache_lock:
         existing = list(_article_cache.values())
@@ -1972,15 +2070,15 @@ def main():
             print(f"[启动] 补翻译失败: {e}")
 
     # Start auto-crawler daemon thread
-    t = threading.Thread(target=_auto_crawl_loop, daemon=True, name="auto-crawler")
-    t.start()
+    _start_crawler_thread()
     ai_enabled = bool(DEEPSEEK_API_KEY)
     interval_m = _auto_crawler["interval_minutes"]
     print("=" * 55)
     print("蒙古多源新闻搜索服务器")
     print(f"来源: {len(SITES)} 个站点已配置")
     print(f"DeepSeek AI: {'已启用' if ai_enabled else '未启用 (请设置 DEEPSEEK_API_KEY)'}")
-    print(f"自动抓取: 每 {interval_m} 分钟 (首次 30 秒后)")
+    print(f"自动抓取: 每 {interval_m // 60} 小时 (首次 30 秒后)")
+    print(f"邮件推送: 每次爬取完成后自动发送")
     port = int(os.environ.get("PORT", 8765))
     host = "0.0.0.0" if os.environ.get("RENDER") else "127.0.0.1"
     if host == "0.0.0.0":

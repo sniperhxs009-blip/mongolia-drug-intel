@@ -1,15 +1,30 @@
 services:
   - type: web
     name: mongolia-drug-intel
-    env: node
+    env: python
     region: singapore
-    buildCommand: npm install && npm run build
-    startCommand: node dist/server.cjs
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn search_server:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 600
     plan: free
     envVars:
-      - key: NODE_VERSION
-        value: "20.18.0"
+      - key: PYTHON_VERSION
+        value: "3.11"
       - key: DEEPSEEK_API_KEY
         sync: false
       - key: SERPER_API_KEY
         sync: false
+      - key: SCRAPINGBEE_API_KEY
+        sync: false
+      - key: AUTO_CRAWL_INTERVAL
+        value: "720"
+      - key: RENDER
+        value: "1"
+
+  - type: cron
+    name: wakeup-crawler
+    env: python
+    region: singapore
+    schedule: "0 */12 * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -c "import urllib.request; urllib.request.urlopen('https://mongolia-drug-intel.onrender.com/api/trigger-crawl')"
+    plan: free

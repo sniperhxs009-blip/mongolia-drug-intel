@@ -219,8 +219,19 @@ def get_report_by_id(report_id):
 def migrate_from_sqlite():
     """One-time migration: read settings from old SQLite DB into JSON files."""
     if os.path.exists(_SETTINGS_PATH):
-        return
-    db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "police_news.db")
+        # Check if settings.json only has defaults (empty email, empty smtp user, no schedules)
+        data = _read_settings()
+        has_real_data = (
+            len(data.get("email_recipients", [])) > 0 or
+            data.get("smtp_config", {}).get("username", "") != "" or
+            len(data.get("push_schedules", [])) > 0
+        )
+        if has_real_data:
+            return
+    base = os.path.dirname(os.path.abspath(__file__))
+    db_path = os.path.join(base, "police_news.db")
+    if not os.path.exists(db_path):
+        db_path = os.path.join(base, "police_news.db.archive")
     if not os.path.exists(db_path):
         return
     try:
