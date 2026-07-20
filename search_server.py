@@ -1668,27 +1668,56 @@ def index():
         "is_crawling": _auto_crawler["is_crawling"],
     }
 
+    return render_template_string(
+        TEMPLATE,
+        query=query,
+        results=results,
+        total_results=count,
+        page=page,
+        per_page=per_page,
+        stats=stats,
+        all_sources=all_sources,
+        current_source=source_filter,
+        source_colors=source_colors,
+        source_text_colors=source_text_colors,
+        progress=progress,
+        loading=False,
+        crawler=crawler_status,
+        ai_enabled=bool(DEEPSEEK_API_KEY),
+    )
+
+
+@app.route("/debug-template")
+def debug_template():
+    """Render the main TEMPLATE with same data as index() to debug 500 error."""
     try:
+        source_colors = SOURCE_COLORS
+        source_text_colors = SOURCE_TEXT_COLORS
+        crawler_status = {
+            "running": True,
+            "last_crawl": None,
+            "last_count": 0,
+            "next_crawl": None,
+            "current_site": "",
+            "interval_h": 12.0,
+            "last_push": None,
+            "is_crawling": False,
+        }
         return render_template_string(
             TEMPLATE,
-            query=query,
-            results=results,
-            total_results=count,
-            page=page,
-            per_page=per_page,
-            stats=stats,
-            all_sources=all_sources,
-            current_source=source_filter,
+            query="", results=[], total_results=0, page=1, per_page=50,
+            stats={"total": 0, "sources": []},
+            all_sources=SITES,
+            current_source="",
             source_colors=source_colors,
             source_text_colors=source_text_colors,
-            progress=progress,
-            loading=False,
+            progress=0, loading=False,
             crawler=crawler_status,
-            ai_enabled=bool(DEEPSEEK_API_KEY),
+            ai_enabled=False,
         )
     except Exception as e:
         import traceback
-        return f"<pre>Template Error: {e}\n{traceback.format_exc()}</pre>", 500
+        return f"<pre>Error: {e}\n\n{traceback.format_exc()}</pre>", 500
 
 
 @app.route("/api/health")
