@@ -4,6 +4,7 @@ Uses SMTP with configurable server settings stored in JSON.
 """
 import smtplib
 import os
+import requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
@@ -73,17 +74,43 @@ def send_drug_intel_email(dry_run=False):
     return {"sent": sent, "errors": errors}
 
 
+def _send_via_resend(api_key, to_email, subject, html_body):
+    """Send email via Resend HTTP API (works on Render free tier)."""
+    resp = requests.post(
+        "https://api.resend.com/emails",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "from": "Mongolia Drug Intel <noreply@mongolia-drug-intel.onrender.com>",
+            "to": [to_email],
+            "subject": subject,
+            "html": html_body,
+        },
+        timeout=30,
+    )
+    if resp.status_code not in (200, 201):
+        raise Exception(f"Resend API error: {resp.status_code} {resp.text}")
+
+
 def _send_one(config, to_email, subject, html_body, dry_run=False):
-    """Send a single email via SMTP."""
+    """Send a single email via SMTP or Resend API."""
+    if dry_run:
+        print(f"[邮件推送-测试] 收件人: {to_email}, 主题: {subject}")
+        return
+
+    # Prefer Resend HTTP API if key is set (works on Render free tier where SMTP is blocked)
+    resend_key = os.environ.get("RESEND_API_KEY", "")
+    if resend_key:
+        _send_via_resend(resend_key, to_email, subject, html_body)
+        return
+
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = config["username"]
     msg["To"] = to_email
     msg.attach(MIMEText(html_body, "html", "utf-8"))
-
-    if dry_run:
-        print(f"[邮件推送-测试] 收件人: {to_email}, 主题: {subject}")
-        return
 
     if config.get("use_tls", 1):
         server = smtplib.SMTP(config["host"], config["port"], timeout=30)
