@@ -55,6 +55,13 @@ TIER1_KEYWORDS = [
     # Abbreviations (always uppercase for disambiguation)
     "ЛСД", "МДМА", "ГХБ", "ПХП", "КНБ",
     "LSD", "MDMA", "PCP", "GHB", "4-MEC", "4MEC",
+    "NPS",         # New Psychoactive Substances
+    "ATS",         # Amphetamine-Type Stimulants
+
+    # Synthetic drug categories
+    "synthetic drug", "synthetic drugs", "synthetic cannabinoid",
+    "amphetamine-type stimulant", "amphetamine-type stimulants",
+    "new psychoactive substance", "new psychoactive substances",
 ]
 
 # === TIER 2: Drug-specific phrases (2 points each) ===
@@ -111,6 +118,62 @@ TIER2_KEYWORDS = [
     "opium poppy",                   # opium poppy
     "cannabis flower",               # cannabis flower
     "hash oil",                      # hash oil
+    "drug abuse",                    # drug abuse
+    "illicit drug",                  # illicit drug
+    "drug control",                  # drug control
+    "counter narcotics",             # counter-narcotics
+    "anti drug",                     # anti-drug
+    "drug enforcement",              # drug enforcement
+    "illicit trafficking",           # illicit trafficking
+    "drug laboratory",               # drug laboratory
+    "drug cultivation",              # drug cultivation
+    "drug production",               # drug production
+    "drug supply",                   # drug supply
+    "harm reduction",                # harm reduction (drug policy)
+    "drug policy",                   # drug policy
+    "drug demand",                   # drug demand reduction
+    "drug related crime",            # drug-related crime
+    "organized crime drug",          # organized crime + drug context
+    "drug interdiction",             # drug interdiction
+    "drug smuggling",                # drug smuggling
+    "drug courier",                  # drug courier
+    "drug mule",                     # drug mule
+    "drug bust",                     # drug bust
+    "drug raid",                     # drug raid
+    "drug syndicate",                # drug syndicate
+    "drug cartel",                   # drug cartel
+    "drug war",                      # drug war
+    "war on drugs",                  # war on drugs
+    "drug overdose",                 # drug overdose
+    "opioid crisis",                 # opioid crisis
+    "opioid epidemic",               # opioid epidemic
+    "substance abuse",               # substance abuse
+    "substance use disorder",        # substance use disorder
+    "injecting drug",                # injecting drug use
+    "drug treatment",                # drug treatment
+    "drug rehabilitation",           # drug rehabilitation
+    "illicit cultivation",           # illicit cultivation
+    "poppy cultivation",             # poppy cultivation
+    "cannabis cultivation",          # cannabis cultivation
+    "drug crop",                     # drug crop
+    "drug eradication",              # drug eradication
+    "drug precursor",                # drug precursor
+    "chemical precursor",            # chemical precursor
+    "precursor chemical",            # precursor chemical
+    "controlled substance",          # controlled substance
+    "controlled delivery",           # controlled delivery (anti-drug operation)
+    "drug money laundering",         # drug money laundering
+    "narcotics control",             # narcotics control
+    "narcotics trafficking",         # narcotics trafficking
+    "illicit narcotics",             # illicit narcotics
+    "counter narcotics operation",   # counter narcotics operation
+    "anti narcotics",                # anti narcotics
+    "drug law enforcement",          # drug law enforcement
+    "narcotics law",                 # narcotics law
+    "psychoactive substance",        # psychoactive substance
+    "psychotropic substance",        # psychotropic substance
+    "drug dependence",               # drug dependence
+    "drug addiction treatment",      # drug addiction treatment
 ]
 
 # === TIER 3: Context words (1 point each) ===
