@@ -99,18 +99,58 @@ def _ensure_crawler_running():
     _start_crawler_thread()
 
 
+# --- Auto-crawler state persistence ---
+_CRAWLER_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "crawler_state.json")
+
+def _load_crawler_state():
+    """Load persisted crawler state from disk (survives Render sleep/restart)."""
+    try:
+        if os.path.exists(_CRAWLER_STATE_FILE):
+            with open(_CRAWLER_STATE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if data.get("last_crawl"):
+                data["last_crawl"] = datetime.fromisoformat(data["last_crawl"])
+            if data.get("last_push_time"):
+                data["last_push_time"] = datetime.fromisoformat(data["last_push_time"])
+            if data.get("next_crawl"):
+                data["next_crawl"] = datetime.fromisoformat(data["next_crawl"])
+            if data.get("last_alert_time"):
+                data["last_alert_time"] = datetime.fromisoformat(data["last_alert_time"])
+            return data
+    except Exception:
+        pass
+    return {}
+
+def _save_crawler_state():
+    """Persist crawler state to disk."""
+    try:
+        data = {
+            "last_crawl": _auto_crawler["last_crawl"].isoformat() if _auto_crawler["last_crawl"] else None,
+            "last_crawl_count": _auto_crawler["last_crawl_count"],
+            "next_crawl": _auto_crawler["next_crawl"].isoformat() if _auto_crawler["next_crawl"] else None,
+            "total_new_today": _auto_crawler["total_new_today"],
+            "last_alert_time": _auto_crawler["last_alert_time"].isoformat() if _auto_crawler["last_alert_time"] else None,
+            "alert_count_today": _auto_crawler["alert_count_today"],
+            "last_push_time": _auto_crawler["last_push_time"].isoformat() if _auto_crawler["last_push_time"] else None,
+        }
+        with open(_CRAWLER_STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception:
+        pass
+
 # --- Auto-crawler background thread ---
+_saved_state = _load_crawler_state()
 _auto_crawler = {
     "running": False,
-    "last_crawl": None,         # datetime
-    "last_crawl_count": 0,      # new articles found in last crawl
-    "next_crawl": None,         # datetime
+    "last_crawl": _saved_state.get("last_crawl"),         # datetime
+    "last_crawl_count": _saved_state.get("last_crawl_count", 0),
+    "next_crawl": _saved_state.get("next_crawl"),         # datetime
     "interval_minutes": int(os.environ.get("AUTO_CRAWL_INTERVAL", "720")),
     "current_site": "",         # which site is being crawled now
-    "total_new_today": 0,       # total new articles found today
-    "last_alert_time": None,    # last instant alert datetime
-    "alert_count_today": 0,     # number of instant alerts sent today
-    "last_push_time": None,     # last email push datetime
+    "total_new_today": _saved_state.get("total_new_today", 0),
+    "last_alert_time": _saved_state.get("last_alert_time"),    # last instant alert datetime
+    "alert_count_today": _saved_state.get("alert_count_today", 0),
+    "last_push_time": _saved_state.get("last_push_time"),     # last email push datetime
     "is_crawling": False,       # prevent concurrent crawls
     "crawl_lock": threading.Lock(),
 }
@@ -169,6 +209,7 @@ def _auto_crawl_loop():
         _auto_crawler["last_crawl_count"] = total_new
         _auto_crawler["total_new_today"] += total_new
         _auto_crawler["current_site"] = ""
+        _save_crawler_state()
         print(f"[实时监控] 爬取完成: +{total_new} 篇新文章, 共 {len(SITES)} 个站点")
 
         # ---- Instant Drug Alert (if new articles found) ----
@@ -2060,12 +2101,19 @@ def live_fetch_site(site, max_arts=200, months=3):
 
 @app.route("/")
 def index():
-    # Lazy crawl trigger: if last crawl was > interval hours ago, trigger crawl in background
-    # This ensures Render free tier wakes up and crawls on first visit after sleep
+    # Lazy crawl trigger: fires on first visit after Render sleep/restart or when interval elapsed
     last = _auto_crawler["last_crawl"]
     interval_seconds = _auto_crawler["interval_minutes"] * 60
-    if last and (datetime.now() - last).total_seconds() > interval_seconds and not _auto_crawler["is_crawling"]:
-        print("[懒触发] 距上次爬取超过间隔，后台触发爬取...")
+    need_crawl = False
+    if not _auto_crawler["is_crawling"]:
+        if last is None:
+            print("[懒触发] 首次启动/休眠恢复，后台触发爬取...")
+            need_crawl = True
+        elif (datetime.now() - last).total_seconds() > interval_seconds:
+            print("[懒触发] 距上次爬取超过间隔，后台触发爬取...")
+            need_crawl = True
+    if need_crawl:
+        _auto_crawler["running"] = True
         threading.Thread(target=_trigger_crawl_job, daemon=True).start()
 
     query = request.args.get("q", "").strip()
@@ -2495,6 +2543,7 @@ def _trigger_crawl_job():
         _auto_crawler["last_crawl"] = datetime.now()
         _auto_crawler["last_crawl_count"] = total_new
         _auto_crawler["total_new_today"] += total_new
+        _save_crawler_state()
         print(f"[触发爬取] 完成: +{total_new} 篇新文章")
 
         # Send email after crawl
