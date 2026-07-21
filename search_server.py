@@ -135,8 +135,8 @@ def _save_crawler_state():
         }
         with open(_CRAWLER_STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[状态保存] 失败: {e}")
 
 # --- Auto-crawler background thread ---
 _saved_state = _load_crawler_state()
