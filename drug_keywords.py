@@ -18,8 +18,8 @@ import re
 # === TIER 1: Specific drug names (3 points each) ===
 # These are unambiguous — if an article mentions heroin, it IS drug-related.
 TIER1_KEYWORDS = [
-    # Mongolian drug names
-    "марихуана", "каннабис", "гашиш",
+    # Mongolian drug names (Cyrillic)
+    "марихуана", "каннабис", "гашиш", "анаша", "өвс",
     "метамфетамин", "амфетамин", "экстази",
     "фентанил", "карфентанил", "метилфентанил", "фуранилфентанил",
     "кетамин", "псилоцибин", "мескалин",
@@ -28,6 +28,11 @@ TIER1_KEYWORDS = [
     "триазолам", "флунитразепам", "диазепам", "алпразолам", "клоназепам", "фенобарбитал",
     "фентермин", "фенциклидин",
     "эфедрин", "псевдоэфедрин",
+    "трамадол", "оксикодон", "гидрокодон", "бупренорфин",
+    "метилфенидат", "амобарбитал", "секобарбитал",
+    "золпидем", "залеплон", "зопиклон",
+    "гамма-гидроксибутират", "гамма гидроксибутират",
+    "синтетик каннабиноид", "спайс", "давс",
 
     # Annaka specific
     "анага бодис", "кофеин натри бензоат", "аннака",
@@ -69,6 +74,19 @@ TIER2_KEYWORDS = [
     "хар тамхины бүлэглэл",        # drug gang
     "нууц лаборатори",              # secret lab
     "газрын тосны эфир",           # petroleum ether (extraction solvent)
+    "хууль бус мансууруулах",      # illegal narcotic
+    "мансууруулах бодис хэрэглэсэн", # narcotic substance use
+    "хар тамхины гэмт хэрэг",      # drug crime
+    "мансууруулах үйлчилгээтэй",   # with narcotic effect
+    "сэтгэц нөлөөт",               # psychoactive
+    "химийн бодис хууль бусаар",   # chemical substance illegal
+    "урьдчилагч химикат",          # precursor chemicals (Mongolian)
+    "химийн урвалж",               # chemical reagent
+    "хууль бусаар тээвэрлэсэн",    # illegally transported
+    "хилээр нэвтрүүлэх",           # cross-border smuggling
+    "хураан авсан бодис",          # seized substance
+    "шинжилгээнд илэрсэн",         # detected in analysis
+    "гаалийн байцаагч",            # customs inspector
 
     # Russian drug-specific phrases
     "наркотрафик",                  # drug trafficking
@@ -130,6 +148,28 @@ TIER3_KEYWORDS = [
     "химийн прекурсор",
     "галлюциноген",
     "снотворное", "тайвшруулагч", "нойрсуулагч",
+
+    # New Mongolian context words
+    "хэтрүүлэн хэрэглэсэн",       # overdose
+    "хордлого",                     # poisoning
+    "согтууруулах",                # intoxicating
+    "өвчин намдаах",               # painkilling
+    "эмийн сан",                   # pharmacy
+    "хууль бусаар худалдсан",      # illegally sold
+    "биед нэвтрүүлсэн",            # smuggled internally (body packing)
+    "нуусан", "далдалсан",         # hidden/concealed
+    "илрүүлсэн",                   # discovered/detected
+    "саатуулсан",                  # detained/seized
+    "баривчилсан",                 # arrested
+    "сэжигтэн",                    # suspect
+    "яллагдагч",                   # defendant
+    "наймаачин",                   # trafficker
+    "залилан",                     # fraud (drug-related scams)
+    "гаалийн",                     # customs
+    "урьдчилан сэргийлэх",        # prevention
+    "эрсдэл",                      # risk
+    "хорт",                        # toxic
+    "донтогч",                     # addict
 ]
 
 
