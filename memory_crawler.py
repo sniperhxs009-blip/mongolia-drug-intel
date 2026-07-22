@@ -9,10 +9,13 @@ import re
 import time
 import threading
 import concurrent.futures
+import warnings
 from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
 from translate import translate_articles_batch
+
+warnings.filterwarnings("ignore", message="Unverified HTTPS request")
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -382,6 +385,12 @@ def quick_parse(site, url, session=None):
 # ---- Crawl engine ----
 
 def crawl_site(site, session=None, max_articles=200, months=3, max_seconds=None, max_pages=None):
+    if site.get("crawler_type") == "gia_api":
+        return crawl_gia_api(site, session, max_articles, months, max_seconds)
+    return _crawl_site_html(site, session, max_articles, months, max_seconds, max_pages)
+
+
+def _crawl_site_html(site, session=None, max_articles=200, months=3, max_seconds=None, max_pages=None):
     """Full-coverage crawl: paginate until articles are older than cutoff, or no more pages.
 
     Args:
@@ -551,6 +560,146 @@ def crawl_site(site, session=None, max_articles=200, months=3, max_seconds=None,
             print(f"[翻译] {site['label']}: 失败 - {e}")
 
     return articles, new_count
+
+
+# ---- GIA API Crawler ----
+# gia.gov.mn is a React SPA. The blog listing API requires auth (401),
+# but the search endpoint is public and returns full article content.
+# We search for common Mongolian letters to enumerate all blog articles,
+# then deduplicate by ID and convert to standard format.
+
+GIA_API_BASE = "https://gia.gov.mn/api/v1"
+GIA_SEARCH_TERMS = [
+    # Common Mongolian letters for broad coverage
+    "а", "э", "и", "о", "у", "н", "р", "с", "л", "т", "м", "г", "д", "б",
+    # Drug-specific terms (ensure drug articles are always captured)
+    "хар тамхи", "мансууруулах", "наркотик", "психотроп",
+    "сэтгэцэд нөлөөт", "мансууруулагч",
+    "drug", "narcotic",
+]
+GIA_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Referer": "https://gia.gov.mn",
+}
+
+
+def crawl_gia_api(site, session=None, max_articles=200, months=3, max_seconds=None):
+    """
+    Crawl gia.gov.mn blog articles via the search API.
+
+    The blog listing API requires authentication, but the search endpoint
+    is public. We search for common Mongolian letters/drug terms to
+    enumerate all articles, deduplicate by ID, and add to cache.
+    """
+    s = session or requests.Session()
+    s.headers.update(GIA_HEADERS)
+    t0 = time.time()
+
+    new_count = 0
+    articles = []
+    seen_ids = set()
+    newly_parsed = []
+    newest_date = ""
+    oldest_date = ""
+
+    for term in GIA_SEARCH_TERMS:
+        if len(articles) >= max_articles:
+            break
+        if max_seconds and (time.time() - t0) > max_seconds:
+            break
+
+        try:
+            resp = s.get(
+                f"{GIA_API_BASE}/blog/search",
+                params={"term": term, "language": "MN"},
+                timeout=15,
+                verify=False,
+            )
+            if resp.status_code != 200:
+                continue
+            data = resp.json()
+        except Exception:
+            continue
+
+        if not isinstance(data, list):
+            continue
+
+        for item in data:
+            if len(articles) >= max_articles:
+                break
+            if max_seconds and (time.time() - t0) > max_seconds:
+                break
+
+            bid = item.get("id")
+            if not bid or bid in seen_ids:
+                continue
+            seen_ids.add(bid)
+
+            title = (item.get("title") or "").strip()
+            if not title:
+                continue
+
+            # Extract text from HTML content
+            html_content = item.get("content") or ""
+            try:
+                text_content = BeautifulSoup(html_content, "html.parser").get_text(separator="\n", strip=True)
+            except Exception:
+                text_content = html_content
+
+            # Parse ISO date
+            raw_date = item.get("createdAt", "")
+            date = ""
+            if raw_date:
+                m = re.match(r"(\d{4}-\d{2}-\d{2})", raw_date)
+                if m:
+                    date = m.group(1)
+
+            lang = item.get("language", "MN")
+            article_url = f"https://gia.gov.mn/blog/{bid}"
+
+            art = {
+                "source": site["name"],
+                "source_label": site["label"],
+                "title": title,
+                "content": text_content,
+                "date": date,
+                "category": "",
+                "url": article_url,
+                "lang": lang.lower(),
+            }
+
+            if date:
+                if not newest_date or date > newest_date:
+                    newest_date = date
+                if not oldest_date or date < oldest_date:
+                    oldest_date = date
+
+            added = add_to_cache(art)
+            articles.append(art)
+            if added:
+                new_count += 1
+                newly_parsed.append(art)
+
+        time.sleep(0.1)
+
+    # Save original text before translation
+    if newly_parsed:
+        for art in newly_parsed:
+            art["_orig_title"] = art.get("title", "")
+            art["_orig_content"] = art.get("content", "")
+
+    # Batch-translate to Chinese
+    if newly_parsed:
+        try:
+            translated = translate_articles_batch(newly_parsed)
+            if translated > 0:
+                print(f"[翻译] {site['label']}: {translated}/{len(newly_parsed)} 篇已翻译为中文")
+        except Exception as e:
+            print(f"[翻译] {site['label']}: 失败 - {e}")
+
+    print(f"[GIA API] 搜索 {len(GIA_SEARCH_TERMS)} 个词 → {len(articles)} 篇文章, +{new_count} 新")
+    return articles, new_count
+
 
 # Auto-restore cache from disk on import
 _load_result = load_cache()

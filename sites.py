@@ -326,6 +326,18 @@ SITES = [
         "paginate": {"param": "page", "start": 1, "max": 30},
     },
     {
+        "name": "gia.gov.mn",
+        "label": "情报总局",
+        "lang": "mn",
+        "crawler_type": "gia_api",
+        "home": "https://gia.gov.mn",
+        "ssl_verify": False,
+        "list_selectors": {},
+        "article_selectors": {},
+        "date_format": "ymd",
+        "paginate": None,
+    },
+    {
         "name": "avesta.tj",
         "label": "Avesta",
         "lang": "en",
