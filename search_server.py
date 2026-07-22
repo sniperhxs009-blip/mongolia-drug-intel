@@ -2637,8 +2637,9 @@ def api_email_send_now():
 def api_trigger_crawl():
     """Manually trigger a crawl + email push. Used by external cron/ping services."""
     last = _auto_crawler["last_crawl"]
+    force = request.args.get("force") == "1"
     min_interval = _auto_crawler["interval_minutes"] * 60 // 2
-    if last and (datetime.now() - last).total_seconds() < min_interval:
+    if not force and last and (datetime.now() - last).total_seconds() < min_interval:
         remaining = int(min_interval - (datetime.now() - last).total_seconds())
         return jsonify({"ok": False, "message": f"距离上次爬取不到{remaining // 60}分钟，跳过"})
 
