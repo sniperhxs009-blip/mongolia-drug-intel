@@ -152,6 +152,7 @@ _auto_crawler = {
     "alert_count_today": _saved_state.get("alert_count_today", 0),
     "last_push_time": _saved_state.get("last_push_time"),     # last email push datetime
     "is_crawling": False,       # prevent concurrent crawls
+    "crawl_started_at": None,   # watchdog: when current crawl started
     "crawl_lock": threading.Lock(),
 }
 
@@ -178,11 +179,21 @@ def _auto_crawl_loop():
                 skip = True
             else:
                 _auto_crawler["is_crawling"] = True
+                _auto_crawler["crawl_started_at"] = now
                 skip = False
             _auto_crawler["next_crawl"] = now + timedelta(seconds=crawl_interval)
             _auto_crawler["current_site"] = ""
 
         if skip:
+            # Watchdog: if crawl stuck > 30 min, force-reset
+            started = _auto_crawler["crawl_started_at"]
+            if started and (datetime.now() - started).total_seconds() > 1800:
+                with _auto_crawler["crawl_lock"]:
+                    _auto_crawler["is_crawling"] = False
+                    _auto_crawler["crawl_started_at"] = None
+                    _auto_crawler["current_site"] = ""
+                print("[看门狗] 爬取卡住超过30分钟，已强制重置")
+                continue
             # Sleep in small increments, checking if crawl finished
             for _ in range(crawl_interval // 30):
                 time.sleep(30)
@@ -261,6 +272,7 @@ def _auto_crawl_loop():
 
         with _auto_crawler["crawl_lock"]:
             _auto_crawler["is_crawling"] = False
+            _auto_crawler["crawl_started_at"] = None
 
         # ---- Sleep until next crawl ----
         print(f"[实时监控] 下次爬取: {(datetime.now() + timedelta(seconds=crawl_interval)).strftime('%Y-%m-%d %H:%M:%S')}")
@@ -2542,6 +2554,7 @@ def _trigger_crawl_job():
             if _auto_crawler["is_crawling"]:
                 return
             _auto_crawler["is_crawling"] = True
+            _auto_crawler["crawl_started_at"] = datetime.now()
 
         from drug_ai import DrugAnalyzer
         analyzer = DrugAnalyzer()
@@ -2625,6 +2638,7 @@ def _trigger_crawl_job():
     finally:
         with _auto_crawler["crawl_lock"]:
             _auto_crawler["is_crawling"] = False
+            _auto_crawler["crawl_started_at"] = None
 
 
 @app.route("/api/email/send-now", methods=["POST"])
@@ -2664,6 +2678,21 @@ def api_crawler_status():
         "last_push": str(_auto_crawler["last_push_time"]) if _auto_crawler["last_push_time"] else None,
         "interval_hours": _auto_crawler["interval_minutes"] / 60,
         "current_site": _auto_crawler["current_site"],
+    })
+
+
+@app.route("/api/reset-crawler")
+def api_reset_crawler():
+    """Force-reset the crawler if it's stuck (is_crawling=true for too long)."""
+    with _auto_crawler["crawl_lock"]:
+        was_stuck = _auto_crawler["is_crawling"]
+        _auto_crawler["is_crawling"] = False
+        _auto_crawler["crawl_started_at"] = None
+        _auto_crawler["current_site"] = ""
+    return jsonify({
+        "ok": True,
+        "was_stuck": was_stuck,
+        "message": "爬取状态已重置" if was_stuck else "爬取状态正常，无需重置",
     })
 
 
