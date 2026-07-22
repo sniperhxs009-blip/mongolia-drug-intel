@@ -570,11 +570,10 @@ def _crawl_site_html(site, session=None, max_articles=200, months=3, max_seconds
 
 GIA_API_BASE = "https://gia.gov.mn/api/v1"
 GIA_SEARCH_TERMS = [
-    # Common Mongolian letters for broad coverage
-    "а", "э", "и", "о", "у", "н", "р", "с", "л", "т", "м", "г", "д", "б",
+    # One common letter covers nearly all ~261 articles
+    "а",
     # Drug-specific terms (ensure drug articles are always captured)
-    "хар тамхи", "мансууруулах", "наркотик", "психотроп",
-    "сэтгэцэд нөлөөт", "мансууруулагч",
+    "хар тамхи", "мансууруулах", "наркотик",
     "drug", "narcotic",
 ]
 GIA_HEADERS = {

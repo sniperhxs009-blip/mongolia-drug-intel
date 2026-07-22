@@ -2667,6 +2667,30 @@ def api_crawler_status():
     })
 
 
+@app.route("/api/test-gia")
+def api_test_gia():
+    """Debug: test GIA API connectivity from Render."""
+    import requests as req
+    results = {}
+    for term in ["а", "хар тамхи", "drug"]:
+        try:
+            r = req.get(
+                "https://gia.gov.mn/api/v1/blog/search",
+                params={"term": term, "language": "MN"},
+                headers={"Referer": "https://gia.gov.mn"},
+                timeout=10,
+                verify=False,
+            )
+            results[term] = {
+                "status": r.status_code,
+                "count": len(r.json()) if r.status_code == 200 else 0,
+                "time_ms": int(r.elapsed.total_seconds() * 1000),
+            }
+        except Exception as e:
+            results[term] = {"error": str(e)[:200]}
+    return jsonify(results)
+
+
 # ===================== Schedule Routes =====================
 
 @app.route("/api/telegram/config", methods=["GET"])
