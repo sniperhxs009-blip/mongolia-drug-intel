@@ -8,7 +8,7 @@ import re
 import json
 import os
 import hashlib
-from drug_keywords import TIER1_KEYWORDS, TIER2_KEYWORDS, TIER3_KEYWORDS
+from drug_keywords import TIER1_KEYWORDS, TIER2_KEYWORDS, TIER3_KEYWORDS, mentions_mongolia
 
 # === DeepSeek API config ===
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
@@ -211,6 +211,12 @@ class DrugAnalyzer:
             result["is_drug"] = True
             result["confidence"] = min(s1["score"] / 30.0, 0.95)
             result["stage"] = "override"
+
+        # Mongolia relevance filter: only flag articles that mention Mongolia
+        if result["is_drug"] and not mentions_mongolia(title, content):
+            result["is_drug"] = False
+            result["confidence"] = 0.0
+            result["stage"] = "mongolia_filter"
 
         self._cache[content_hash] = result
         return result

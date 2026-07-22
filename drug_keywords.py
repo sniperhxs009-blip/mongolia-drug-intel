@@ -236,6 +236,24 @@ TIER3_KEYWORDS = [
 ]
 
 
+# === MONGOLIA KEYWORDS ===
+# Articles must mention Mongolia to be considered relevant.
+# Covers Mongolian (Cyrillic), English, Russian, and Chinese variants.
+MONGOLIA_KEYWORDS = [
+    # Mongolian (Cyrillic) — primary
+    "монгол", "монголын", "монголд", "монголоос",
+    "монгол улс", "монгол улсын", "монгол орон",
+    # Capital city
+    "улаанбаатар", "улаанбаатарт", "ulanbaatar", "ulaanbaatar",
+    # English
+    "mongolia", "mongolian",
+    # Russian
+    "монголия", "монголии", "монгольский", "монгольская",
+    # Chinese
+    "蒙古",
+]
+
+
 # Short English keywords that require word boundaries to avoid false positives.
 # E.g. "ice" should NOT match "police", "meth" should NOT match "method".
 WORD_BOUNDARY_KEYWORDS = {"weed", "pot", "dope", "meth", "ice", "molly", "crack", "speed", "crank"}
@@ -298,9 +316,20 @@ def score_article(title, content, source=None):
 
 
 def is_drug_article(title, content, source=None):
-    """Returns True if the article passes the drug relevance threshold."""
+    """Returns True if the article passes the drug relevance threshold AND mentions Mongolia."""
     score, _, _, _, _ = score_article(title, content, source)
-    return score >= 4
+    if score < 4:
+        return False
+    return mentions_mongolia(title, content)
+
+
+def mentions_mongolia(title, content):
+    """Check if article mentions Mongolia — required for relevance filtering."""
+    text = ((title or '') + ' ' + (content or '')).lower()
+    for kw in MONGOLIA_KEYWORDS:
+        if kw in text:
+            return True
+    return False
 
 
 def match_drug_keywords(text):

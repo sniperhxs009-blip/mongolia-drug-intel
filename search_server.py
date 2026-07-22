@@ -9,7 +9,7 @@ from memory_crawler import (crawl_site as mc_crawl_site, get_cached_articles,
     get_cache_size, get_cache_stats, is_in_cache, add_to_cache,
     _article_cache, _seen_urls, _cache_lock, _is_within_months, quick_parse, http_session)
 from sites import SITES
-from drug_keywords import get_all_keywords, match_drug_keywords, score_article
+from drug_keywords import get_all_keywords, match_drug_keywords, score_article, mentions_mongolia
 
 from translate import batch_translate, translate_articles_batch, DEEPSEEK_API_KEY
 from report_generator import generate_intelligence_report
@@ -2149,7 +2149,7 @@ def index():
             title = art.get("_orig_title") or art.get("title") or ""
             content = art.get("_orig_content") or art.get("content") or ""
             sc, t1, t2, t3, tm = score_article(title, content, art.get("source"))
-            if sc >= 4:
+            if sc >= 4 and mentions_mongolia(title, content):
                 art["drug_score"] = sc
                 art["matched_keywords"] = t1 + t2 + t3
                 scored.append(art)
