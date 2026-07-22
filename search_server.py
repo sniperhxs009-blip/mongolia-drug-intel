@@ -2691,6 +2691,27 @@ def api_test_gia():
     return jsonify(results)
 
 
+@app.route("/api/crawl-gia")
+def api_crawl_gia():
+    """Force crawl GIA only and return results."""
+    from sites import SITES
+    from memory_crawler import crawl_gia_api as gia_crawl
+    gia = [s for s in SITES if s["name"] == "gia.gov.mn"]
+    if not gia:
+        return jsonify({"ok": False, "error": "GIA site not configured"})
+    try:
+        arts, new_count = gia_crawl(gia[0], max_articles=300, months=24)
+        return jsonify({
+            "ok": True,
+            "total": len(arts),
+            "new": new_count,
+            "sample_titles": [a["title"][:60] for a in arts[:10]],
+            "sample_dates": [a.get("date", "") for a in arts[:10]],
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:300]})
+
+
 # ===================== Schedule Routes =====================
 
 @app.route("/api/telegram/config", methods=["GET"])
