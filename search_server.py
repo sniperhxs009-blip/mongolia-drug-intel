@@ -9,7 +9,7 @@ from memory_crawler import (crawl_site as mc_crawl_site, get_cached_articles,
     get_cache_size, get_cache_stats, is_in_cache, add_to_cache,
     _article_cache, _seen_urls, _cache_lock, _is_within_months, quick_parse, http_session)
 from sites import SITES
-from drug_keywords import get_all_keywords, match_drug_keywords, score_article
+from drug_keywords import get_all_keywords, match_drug_keywords, score_article, mentions_mongolia
 
 from translate import batch_translate, translate_articles_batch, DEEPSEEK_API_KEY
 from report_generator import generate_intelligence_report
@@ -431,6 +431,8 @@ body {
 .btn-live:hover { background: rgba(34, 197, 94, 0.25); box-shadow: 0 0 25px rgba(34, 197, 94, 0.2); transform: translateY(-1px); }
 .btn-drugs { background: rgba(239, 68, 68, 0.15); color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
 .btn-drugs:hover { background: rgba(239, 68, 68, 0.25); box-shadow: 0 0 25px rgba(239, 68, 68, 0.2); transform: translateY(-1px); }
+.btn-mongolia-drugs { background: rgba(139, 92, 246, 0.15); color: #c084fc; border-color: rgba(139, 92, 246, 0.3); }
+.btn-mongolia-drugs:hover { background: rgba(139, 92, 246, 0.25); box-shadow: 0 0 25px rgba(139, 92, 246, 0.2); transform: translateY(-1px); }
 
 
 /* Stats Bar */
@@ -630,6 +632,7 @@ mark { background: #fbbf24; color: #000; padding: 0 2px; border-radius: 2px; }
     <button type="submit" class="btn" style="background:rgba(56,189,248,0.15);color:#38bdf8;border-color:rgba(56,189,248,0.3);">🔍 搜索</button>
     <button type="button" id="btn-live" class="btn btn-live" onclick="startLiveFetch()">实时抓取</button>
     <button type="submit" name="action" value="drugs" class="btn btn-drugs">毒品新闻</button>
+    <button type="submit" name="action" value="mongolia_drugs" class="btn btn-mongolia-drugs">蒙古毒品</button>
 
     <a href="/report" class="btn" style="background:rgba(245,158,11,0.15);color:#fbbf24;border-color:rgba(245,158,11,0.3);text-decoration:none;display:inline-block;line-height:1.4;">📋 研判报告</a>
     <a href="/stats" class="btn" style="background:rgba(34,197,94,0.15);color:#4ade80;border-color:rgba(34,197,94,0.3);text-decoration:none;display:inline-block;line-height:1.4;">📊 统计</a>
@@ -766,6 +769,7 @@ let liveArticleCount = 0;
   const action = params.get('action') || '';
   const labels = {
     'drugs': '正在搜索毒品相关新闻...',
+    'mongolia_drugs': '正在筛选涉及蒙古国的毒品新闻...',
   };
   if (labels[action]) {
     msg.textContent = labels[action];
@@ -2158,6 +2162,24 @@ def index():
         count = len(scored)
         results = scored[offset:offset + per_page]
         query = "[毒品新闻筛选]"
+
+    elif action == "mongolia_drugs":
+        sf = source_filter if source_filter else None
+        all_articles = get_cached_articles(source=sf, months=3)
+        scored = []
+        for art in all_articles:
+            title = art.get("_orig_title") or art.get("title") or ""
+            content = art.get("_orig_content") or art.get("content") or ""
+            sc, t1, t2, t3, tm = score_article(title, content, art.get("source"))
+            if sc >= 4 and mentions_mongolia(title, content):
+                art["drug_score"] = sc
+                art["matched_keywords"] = t1 + t2 + t3
+                scored.append(art)
+        scored.sort(key=lambda x: x.get("date") or "0000-00-00", reverse=True)
+        scored.sort(key=lambda x: x["drug_score"], reverse=True)
+        count = len(scored)
+        results = scored[offset:offset + per_page]
+        query = "[蒙古毒品新闻筛选]"
 
     else:
         # Multi-source filter: comma-separated
