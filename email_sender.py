@@ -10,7 +10,7 @@ from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 from settings_store import get_email_recipients, get_smtp_config, get_latest_report
 from memory_crawler import get_cached_articles
-from drug_keywords import score_article, mentions_mongolia
+from drug_keywords import score_article
 
 
 def _get_drug_articles(limit=30, months=None):
@@ -18,10 +18,12 @@ def _get_drug_articles(limit=30, months=None):
     all_articles = get_cached_articles(months=months)
     scored = []
     for art in all_articles:
-        title = art.get("_orig_title") or art.get("title", "")
-        content = art.get("_orig_content") or art.get("content", "")
-        score, t1, t2, t3, title_match = score_article(title, content, art.get("source"))
-        if score >= 4 and mentions_mongolia(title, content):
+        score, t1, t2, t3, title_match = score_article(
+            art.get("_orig_title") or art.get("title", ""),
+            art.get("_orig_content") or art.get("content", ""),
+            art.get("source")
+        )
+        if score >= 4:
             art = dict(art)
             art["drug_score"] = score
             art["matched_tier1"] = t1
