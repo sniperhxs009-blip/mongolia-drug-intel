@@ -207,8 +207,8 @@ def _auto_crawl_loop():
                 continue
             _auto_crawler["current_site"] = site["label"]
             try:
-                arts, new_count = mc_crawl_site(site, session, max_articles=200, months=3,
-                                                   max_seconds=60, max_pages=20)
+                arts, new_count = mc_crawl_site(site, session, max_articles=300, months=3,
+                                                   max_seconds=120, max_pages=20)
                 total_new += new_count
                 if new_count > 0:
                     print(f"[实时监控] {site['label']}: +{new_count} 篇新文章")
@@ -220,6 +220,8 @@ def _auto_crawl_loop():
         _auto_crawler["last_crawl_count"] = total_new
         _auto_crawler["total_new_today"] += total_new
         _auto_crawler["current_site"] = ""
+        _auto_crawler["is_crawling"] = False
+        _auto_crawler["crawl_started_at"] = None
         _save_crawler_state()
         print(f"[实时监控] 爬取完成: +{total_new} 篇新文章, 共 {len(SITES)} 个站点")
 
@@ -2184,8 +2186,8 @@ def index():
 
     elif action == "mongolia_drugs":
         sf = source_filter if source_filter else None
-        # Use 12-month window for Mongolia drugs to catch more articles
-        all_articles = get_cached_articles(source=sf, months=12)
+        # Use 24-month window for Mongolia drugs to catch older GIA/Police articles
+        all_articles = get_cached_articles(source=sf, months=24)
         scored = []
         for art in all_articles:
             title = art.get("_orig_title") or art.get("title") or ""
@@ -2193,8 +2195,18 @@ def index():
             sc, t1, t2, t3, tm = score_article(title, content, art.get("source"))
             is_mn_source = art.get("source", "").endswith(".mn")
             source_name = art.get("source", "")
-            # Lower threshold for .mn sources (sc >= 3) to catch more local articles
-            threshold = 3 if is_mn_source else 4
+            # Lower threshold for .mn sources (sc >= 3) to catch more local articles,
+            # but require title match or TIER1 drug names for borderline scores (3-5)
+            # to filter out false positives (human trafficking, music festivals, etc.)
+            if is_mn_source:
+                if tm or len(t1) > 0:
+                    threshold = 3  # Title mentions drugs → lower threshold
+                elif sc >= 6:
+                    threshold = 3  # Strong content signal even without title match
+                else:
+                    threshold = 4  # Borderline score without title match → stricter
+            else:
+                threshold = 4
             if sc < threshold:
                 continue
             if not (mentions_mongolia(title, content, art.get("url")) or is_mn_source):
@@ -2589,8 +2601,8 @@ def _trigger_crawl_job():
             if site.get("requires_js"):
                 continue
             try:
-                arts, new_count = mc_crawl_site(site, session, max_articles=200, months=3,
-                                                   max_seconds=60, max_pages=20)
+                arts, new_count = mc_crawl_site(site, session, max_articles=300, months=3,
+                                                   max_seconds=120, max_pages=20)
                 total_new += new_count
             except Exception as e:
                 print(f"[触发爬取] {site['label']}: 错误 - {e}")
