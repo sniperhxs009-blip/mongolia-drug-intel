@@ -2165,10 +2165,17 @@ def index():
             title = art.get("_orig_title") or art.get("title") or ""
             content = art.get("_orig_content") or art.get("content") or ""
             sc, t1, t2, t3, tm = score_article(title, content, art.get("source"))
-            if sc >= 4:
-                art["drug_score"] = sc
-                art["matched_keywords"] = t1 + t2 + t3
-                scored.append(art)
+            if sc < 4:
+                continue
+            source_name = art.get("source", "")
+            # Anti-boilerplate: CSTO/ODKB/UNODC require specific drug names
+            is_boilerplate = any(bp in source_name for bp in ("odkb-csto.org", "CSTO", "unodc.org"))
+            if is_boilerplate:
+                if len(t1) < 2 and not (len(t1) >= 1 and len(t2) >= 2):
+                    continue
+            art["drug_score"] = sc
+            art["matched_keywords"] = t1 + t2 + t3
+            scored.append(art)
         scored.sort(key=lambda x: x.get("date") or "0000-00-00", reverse=True)
         scored.sort(key=lambda x: x["drug_score"], reverse=True)
         count = len(scored)
