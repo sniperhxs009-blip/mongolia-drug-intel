@@ -2170,8 +2170,10 @@ def index():
             if sc < 4:
                 continue
             source_name = art.get("source", "")
-            # Anti-boilerplate: CSTO/ODKB/UNODC require specific drug names
-            is_boilerplate = any(bp in source_name for bp in ("odkb-csto.org", "CSTO", "unodc.org"))
+            # Anti-boilerplate: only for CSTO/ODKB (general security org that
+            # mentions drug trafficking as one of many mission statements).
+            # UNODC and CARICC are dedicated drug/crime agencies - every article is relevant.
+            is_boilerplate = any(bp in source_name for bp in ("odkb-csto.org", "CSTO"))
             if is_boilerplate:
                 if len(t1) < 2 and not (len(t1) >= 1 and len(t2) >= 2):
                     continue
@@ -2211,9 +2213,9 @@ def index():
                 continue
             if not (mentions_mongolia(title, content, art.get("url")) or is_mn_source):
                 continue
-            # Anti-boilerplate: CSTO/ODKB/UNODC pages often mention drugs in
-            # organizational boilerplate. Require specific drug names (TIER1) for these.
-            is_boilerplate = any(bp in source_name for bp in ("odkb-csto.org", "CSTO", "unodc.org"))
+            # Anti-boilerplate: only for CSTO/ODKB (general security org).
+            # UNODC and CARICC are dedicated drug agencies.
+            is_boilerplate = any(bp in source_name for bp in ("odkb-csto.org", "CSTO"))
             if is_boilerplate:
                 if len(t1) < 2 and not (len(t1) >= 1 and len(t2) >= 2):
                     continue
