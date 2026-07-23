@@ -319,7 +319,7 @@ def is_drug_article(title, content, source=None):
     score, _, _, _, _ = score_article(title, content, source)
     if score < 4:
         return False
-    if source == "gia.gov.mn":
+    if source and source.endswith(".mn"):
         return True
     return mentions_mongolia(title, content)
 

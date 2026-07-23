@@ -2183,7 +2183,8 @@ def index():
             title = art.get("_orig_title") or art.get("title") or ""
             content = art.get("_orig_content") or art.get("content") or ""
             sc, t1, t2, t3, tm = score_article(title, content, art.get("source"))
-            if sc >= 4 and (mentions_mongolia(title, content) or art.get("source") == "gia.gov.mn"):
+            is_mn_source = art.get("source", "").endswith(".mn")
+            if sc >= 4 and (mentions_mongolia(title, content) or is_mn_source):
                 art["drug_score"] = sc
                 art["matched_keywords"] = t1 + t2 + t3
                 scored.append(art)
