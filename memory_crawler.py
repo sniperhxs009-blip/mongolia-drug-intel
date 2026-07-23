@@ -367,6 +367,10 @@ def quick_parse(site, url, session=None):
 def crawl_site(site, session=None, max_articles=200, months=3, max_seconds=None, max_pages=None):
     if site.get("crawler_type") == "gia_api":
         return crawl_gia_api(site, session, max_articles, months, max_seconds)
+    if site.get("crawler_type") == "police_search":
+        return crawl_police_search(site, session, max_articles, months, max_seconds)
+    if site.get("crawler_type") == "montsame_search":
+        return crawl_montsame_search(site, session, max_articles, months, max_seconds)
     return _crawl_site_html(site, session, max_articles, months, max_seconds, max_pages)
 
 
@@ -682,6 +686,177 @@ def crawl_gia_api(site, session=None, max_articles=200, months=3, max_seconds=No
             print(f"[翻译] {site['label']}: 失败 - {e}")
 
     print(f"[GIA API] 搜索 {len(GIA_SEARCH_TERMS)} 个词 → {len(articles)} 篇文章, +{new_count} 新")
+    return articles, new_count
+
+
+# ---- Police.gov.mn Search Crawler ----
+# police.gov.mn has a search endpoint that returns article IDs.
+# The homepage only shows recent articles, but search gives access to the full archive.
+
+POLICE_SEARCH_TERMS = [
+    "хар тамхи", "мансууруулах", "мансууруулах бодис", "мансууруулах эм",
+    "наркотик", "психотроп", "сэтгэцэд нөлөөлөх",
+    "кокаин", "героин", "марихуана", "метамфетамин", "экстази",
+    "контрабанда", "хууль бус", "хууль бусаар",
+    "мансууруулагч", "донтолт",
+]
+
+
+def crawl_police_search(site, session=None, max_articles=200, months=3, max_seconds=None):
+    """Crawl police.gov.mn via the search endpoint for drug-related articles."""
+    s = session or requests.Session()
+    s.headers.update(HEADERS)
+    t0 = time.time()
+
+    new_count = 0
+    articles = []
+    seen_ids = set()
+    newly_parsed = []
+
+    for term in POLICE_SEARCH_TERMS:
+        if len(articles) >= max_articles:
+            break
+        if max_seconds and (time.time() - t0) > max_seconds:
+            break
+
+        try:
+            resp = s.get(
+                f"{site['home']}?search={requests.utils.quote(term)}",
+                timeout=15,
+                verify=site.get("ssl_verify", True),
+            )
+            if resp.status_code != 200:
+                continue
+        except Exception:
+            continue
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        links = soup.select("a[href^='/a/']")
+        ids = []
+        for a in links:
+            href = a.get("href", "")
+            m = re.search(r"/a/(\d+)", href)
+            if m:
+                aid = m.group(1)
+                if aid not in seen_ids:
+                    seen_ids.add(aid)
+                    ids.append(aid)
+
+        for aid in ids:
+            if len(articles) >= max_articles:
+                break
+            if max_seconds and (time.time() - t0) > max_seconds:
+                break
+
+            art_url = f"https://police.gov.mn/a/{aid}"
+            art = quick_parse(site, art_url, s)
+            if art and art["title"]:
+                articles.append(art)
+                added = add_to_cache(art)
+                if added:
+                    new_count += 1
+                    newly_parsed.append(art)
+
+        time.sleep(0.1)
+
+    # Save original text before translation
+    if newly_parsed:
+        for art in newly_parsed:
+            art["_orig_title"] = art.get("title", "")
+            art["_orig_content"] = art.get("content", "")
+
+    if newly_parsed:
+        try:
+            translated = translate_articles_batch(newly_parsed)
+            if translated > 0:
+                print(f"[翻译] {site['label']}: {translated}/{len(newly_parsed)} 篇已翻译为中文")
+        except Exception as e:
+            print(f"[翻译] {site['label']}: 失败 - {e}")
+
+    print(f"[警察总局] 搜索 {len(POLICE_SEARCH_TERMS)} 个词 → {len(articles)} 篇文章, +{new_count} 新")
+    return articles, new_count
+
+
+# ---- Montsame.mn Search Crawler ----
+# montsame.mn has a search endpoint (?q=) that gives access to archive articles.
+
+MONTSAME_SEARCH_TERMS = [
+    "хар тамхи", "мансууруулах", "мансууруулах бодис",
+    "наркотик", "психотроп", "сэтгэцэд нөлөөлөх",
+    "кокаин", "героин", "марихуана", "метамфетамин", "экстази",
+    "контрабанда", "хууль бус",
+]
+
+
+def crawl_montsame_search(site, session=None, max_articles=200, months=3, max_seconds=None):
+    """Crawl montsame.mn via search endpoint for drug-related articles."""
+    s = session or requests.Session()
+    s.headers.update(HEADERS)
+    t0 = time.time()
+
+    new_count = 0
+    articles = []
+    seen_ids = set()
+    newly_parsed = []
+
+    for term in MONTSAME_SEARCH_TERMS:
+        if len(articles) >= max_articles:
+            break
+        if max_seconds and (time.time() - t0) > max_seconds:
+            break
+
+        try:
+            news_list = site.get("news_list", "")
+            search_url = news_list.format(term=requests.utils.quote(term))
+            resp = s.get(search_url, timeout=15, verify=site.get("ssl_verify", True))
+            if resp.status_code != 200:
+                continue
+        except Exception:
+            continue
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        links = soup.select("a[href*='/read/']")
+        ids = []
+        for a in links:
+            href = a.get("href", "")
+            m = re.search(r"/read/(\d+)", href)
+            if m:
+                aid = m.group(1)
+                if aid not in seen_ids:
+                    seen_ids.add(aid)
+                    ids.append(aid)
+
+        for aid in ids:
+            if len(articles) >= max_articles:
+                break
+            if max_seconds and (time.time() - t0) > max_seconds:
+                break
+
+            art_url = f"https://montsame.mn/mn/read/{aid}"
+            art = quick_parse(site, art_url, s)
+            if art and art["title"]:
+                articles.append(art)
+                added = add_to_cache(art)
+                if added:
+                    new_count += 1
+                    newly_parsed.append(art)
+
+        time.sleep(0.1)
+
+    if newly_parsed:
+        for art in newly_parsed:
+            art["_orig_title"] = art.get("title", "")
+            art["_orig_content"] = art.get("content", "")
+
+    if newly_parsed:
+        try:
+            translated = translate_articles_batch(newly_parsed)
+            if translated > 0:
+                print(f"[翻译] {site['label']}: {translated}/{len(newly_parsed)} 篇已翻译为中文")
+        except Exception as e:
+            print(f"[翻译] {site['label']}: 失败 - {e}")
+
+    print(f"[蒙通社] 搜索 {len(MONTSAME_SEARCH_TERMS)} 个词 → {len(articles)} 篇文章, +{new_count} 新")
     return articles, new_count
 
 

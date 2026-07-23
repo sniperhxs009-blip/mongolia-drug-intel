@@ -8,6 +8,7 @@ SITES = [
         "name": "police.gov.mn",
         "label": "警察总局",
         "lang": "mn",
+        "crawler_type": "police_search",
         "home": "https://police.gov.mn/home",
         "article_url": "https://police.gov.mn/a/{id}",
         # --- Listing (homepage) ---
@@ -149,8 +150,9 @@ SITES = [
         "name": "montsame.mn",
         "label": "蒙通社",
         "lang": "mn",
+        "crawler_type": "montsame_search",
         "home": "https://montsame.mn/mn/",
-        "news_list": "https://montsame.mn/mn/?page={page}",
+        "news_list": "https://montsame.mn/mn/?q={term}",
         "article_url": "https://montsame.mn/mn/read/{id}",
         "list_selectors": {
             "article_links": "a[href*='/read/']",
