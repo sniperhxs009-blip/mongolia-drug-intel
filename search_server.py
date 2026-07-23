@@ -2184,8 +2184,8 @@ def index():
 
     elif action == "mongolia_drugs":
         sf = source_filter if source_filter else None
-        # Use 6-month window for Mongolia drugs to catch more articles
-        all_articles = get_cached_articles(source=sf, months=6)
+        # Use 12-month window for Mongolia drugs to catch more articles
+        all_articles = get_cached_articles(source=sf, months=12)
         scored = []
         for art in all_articles:
             title = art.get("_orig_title") or art.get("title") or ""
