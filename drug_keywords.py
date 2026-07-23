@@ -67,8 +67,15 @@ TIER1_KEYWORDS = [
 # === TIER 2: Drug-specific phrases (2 points each) ===
 # Multi-word phrases that strongly indicate drug context, not general crime.
 TIER2_KEYWORDS = [
+    # Mongolian drug stems — catches ALL agglutinative variants
+    # "мансууруул" matches: мансууруулах, мансууруулагч, мансууруулсан, etc.
+    "мансууруул",                   # narcotic stem (all forms)
+    "психотроп",                    # psychotropic stem (all forms)
+
     # Mongolian drug phrases
     "хар тамхи",                    # "black tobacco" = drugs
+    "хар тамхины",                  # "of drugs" (possessive)
+    "хар тамхичин",                # drug addict/user
     "мансууруулах эм",              # narcotic drug
     "мансууруулах бодис",           # narcotic substance
     "сэтгэцэд нөлөөлөх бодис",     # psychoactive substance
@@ -91,9 +98,16 @@ TIER2_KEYWORDS = [
     "химийн урвалж",               # chemical reagent
     "хууль бусаар тээвэрлэсэн",    # illegally transported
     "хилээр нэвтрүүлэх",           # cross-border smuggling
+    "хилээр нэвтрүүлэхийг",        # attempting cross-border smuggling
+    "хууль бусаар нэвтрүүлэх",     # illegally smuggling
     "хураан авсан бодис",          # seized substance
     "шинжилгээнд илэрсэн",         # detected in analysis
     "гаалийн байцаагч",            # customs inspector
+    "биед нэвтрүүлсэн",            # body packing
+    "хар тамхины наймаа",          # drug trade
+    "хар тамхины наймаачин",       # drug trafficker
+    "мансууруулах эмийн наймаа",   # narcotic drug trade
+    "сэтгэцэд нөлөөт",             # psychoactive (alt spelling)
 
     # Russian drug-specific phrases
     "наркотрафик",                  # drug trafficking
@@ -102,10 +116,17 @@ TIER2_KEYWORDS = [
     "наркопритон",                  # drug den
     "нарколаборатория",             # drug lab
     "наркозависимость",             # drug addiction
+    "наркопреступление",            # drug crime
+    "наркопреступности",            # drug crimes
+    "наркобизнес",                  # drug business
+    "наркоконтроль",                # drug control
     "наркосодержащих",              # narcotic-containing
     "трансграничная контрабанда наркотиков",  # cross-border drug smuggling
     "изъятие наркотиков",           # drug seizure
     "прекурсоры наркотиков",        # drug precursors
+    "незаконный оборот наркотиков", # illegal drug trafficking
+    "наркотических средств",        # narcotic drugs
+    "психотропных веществ",         # psychotropic substances
 
     # English drug-specific
     "drug trafficking",             # drug trafficking
@@ -195,10 +216,11 @@ TIER3_KEYWORDS = [
     "изъято", "конфисковано",
 
     # Generic drug terms (Mongolian)
-    "мансууруулах",                 # "narcotic" stem
+    "мансууруулах",                 # "narcotic" (specific form)
     "сэтгэцэд нөлөөлөх",           # "psychoactive" stem
     "сэтгэцэд нөлөөт",             # "psychoactive" stem (alt)
-    "донтолт", "донтох",           # addiction
+    "сэтгэц нөлөөлөх",             # "psychoactive" (short form)
+    "донтолт", "донтох", "донтогч", # addiction / addict
     "наркотический", "наркотические",
 
     # English generic
@@ -212,26 +234,41 @@ TIER3_KEYWORDS = [
     "галлюциноген",
     "снотворное", "тайвшруулагч", "нойрсуулагч",
 
-    # New Mongolian context words
-    "хэтрүүлэн хэрэглэсэн",       # overdose
-    "хордлого",                     # poisoning
+    # Mongolian drug-related context (only counted alongside TIER1/2)
+    "тариур",                      # syringe
+    "нунтаг",                      # powder (drug form)
+    "өвс",                         # grass/weed (slang)
+    "ургамал",                     # plant (cultivation)
+    "наймаа",                      # trade/trafficking
+    "наймаачин",                   # trafficker
+    "хууль бусаар",                # illegally
+    "хууль бус",                   # illegal
+    "хил нэвтрүүлэх",             # cross-border
+    "хилээр",                      # across border
+    "гаалийн",                     # customs
+    "хураан ав",                   # seized
+    "хураан авсан",                # seized (past)
+    "илрүүлсэн",                   # discovered
+    "баривчилсан",                 # arrested
+    "саатуулсан",                  # detained
+    "сэжигтэн",                    # suspect
+    "яллагдагч",                   # defendant
+    "хэрэглэсэн",                  # used/consumed
+    "хэтрүүлэн хэрэглэсэн",       # overdosed
+    "хордлого",                    # poisoning
+    "урьдчилагч",                  # precursor
+    "лаборатори",                  # laboratory
+    "бодисын наймаа",              # substance trafficking
+    "химийн бодис",                # chemical substance
     "өвчин намдаах",               # painkilling
     "эмийн сан",                   # pharmacy
     "хууль бусаар худалдсан",      # illegally sold
-    "биед нэвтрүүлсэн",            # smuggled internally (body packing)
+    "биед нэвтрүүлсэн",            # body packing
     "нуусан", "далдалсан",         # hidden/concealed
-    "илрүүлсэн",                   # discovered/detected
-    "саатуулсан",                  # detained/seized
-    "баривчилсан",                 # arrested
-    "сэжигтэн",                    # suspect
-    "яллагдагч",                   # defendant
-    "наймаачин",                   # trafficker
-    "залилан",                     # fraud (drug-related scams)
-    "гаалийн",                     # customs
+    "залилан",                     # fraud (drug scams)
     "урьдчилан сэргийлэх",        # prevention
     "эрсдэл",                      # risk
     "хорт",                        # toxic
-    "донтогч",                     # addict
 ]
 
 

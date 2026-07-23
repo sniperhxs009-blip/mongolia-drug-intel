@@ -2177,14 +2177,17 @@ def index():
 
     elif action == "mongolia_drugs":
         sf = source_filter if source_filter else None
-        all_articles = get_cached_articles(source=sf, months=3)
+        # Use 6-month window for Mongolia drugs to catch more articles
+        all_articles = get_cached_articles(source=sf, months=6)
         scored = []
         for art in all_articles:
             title = art.get("_orig_title") or art.get("title") or ""
             content = art.get("_orig_content") or art.get("content") or ""
             sc, t1, t2, t3, tm = score_article(title, content, art.get("source"))
             is_mn_source = art.get("source", "").endswith(".mn")
-            if sc >= 4 and (mentions_mongolia(title, content) or is_mn_source):
+            # Lower threshold for .mn sources (sc >= 3) to catch more local articles
+            threshold = 3 if is_mn_source else 4
+            if sc >= threshold and (mentions_mongolia(title, content) or is_mn_source):
                 art["drug_score"] = sc
                 art["matched_keywords"] = t1 + t2 + t3
                 scored.append(art)
