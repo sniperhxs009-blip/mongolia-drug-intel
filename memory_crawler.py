@@ -113,22 +113,14 @@ def get_cache_stats():
 
 def evict_old_articles(months=3):
     """Remove articles older than N months from cache."""
-    cutoff = datetime.now() - timedelta(days=months * 30)
     with _cache_lock:
         to_remove = []
         for url, art in _article_cache.items():
             d = art.get("date", "")
             if not d:
-                continue
-            try:
-                s = str(d)[:10].replace(".", "-").strip()
-                m = re.match(r"(\d{4})-(\d{2})-(\d{2})", s)
-                if m:
-                    dt = datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-                    if dt < cutoff:
-                        to_remove.append(url)
-            except Exception:
-                pass
+                continue  # keep articles without dates
+            if not _is_within_months(d, months):
+                to_remove.append(url)
         for url in to_remove:
             del _article_cache[url]
             _seen_urls.discard(url)
