@@ -2185,12 +2185,22 @@ def index():
             content = art.get("_orig_content") or art.get("content") or ""
             sc, t1, t2, t3, tm = score_article(title, content, art.get("source"))
             is_mn_source = art.get("source", "").endswith(".mn")
+            source_name = art.get("source", "")
             # Lower threshold for .mn sources (sc >= 3) to catch more local articles
             threshold = 3 if is_mn_source else 4
-            if sc >= threshold and (mentions_mongolia(title, content) or is_mn_source):
-                art["drug_score"] = sc
-                art["matched_keywords"] = t1 + t2 + t3
-                scored.append(art)
+            if sc < threshold:
+                continue
+            if not (mentions_mongolia(title, content, art.get("url")) or is_mn_source):
+                continue
+            # Anti-boilerplate: CSTO/ODKB/UNODC pages often mention drugs in
+            # organizational boilerplate. Require specific drug names (TIER1) for these.
+            is_boilerplate = any(bp in source_name for bp in ("odkb-csto.org", "CSTO", "unodc.org"))
+            if is_boilerplate:
+                if len(t1) < 2 and not (len(t1) >= 1 and len(t2) >= 2):
+                    continue
+            art["drug_score"] = sc
+            art["matched_keywords"] = t1 + t2 + t3
+            scored.append(art)
         scored.sort(key=lambda x: x.get("date") or "0000-00-00", reverse=True)
         scored.sort(key=lambda x: x["drug_score"], reverse=True)
         count = len(scored)

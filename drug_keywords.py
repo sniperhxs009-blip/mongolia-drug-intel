@@ -73,9 +73,7 @@ TIER2_KEYWORDS = [
     "психотроп",                    # psychotropic stem (all forms)
 
     # Mongolian drug phrases
-    "хар тамхи",                    # "black tobacco" = drugs
-    "хар тамхины",                  # "of drugs" (possessive)
-    "хар тамхичин",                # drug addict/user
+    "хар тамхи",                    # "black tobacco" = drugs (catches all forms: хар тамхины, хар тамхичин, etc.)
     "мансууруулах эм",              # narcotic drug
     "мансууруулах бодис",           # narcotic substance
     "сэтгэцэд нөлөөлөх бодис",     # psychoactive substance
@@ -290,9 +288,17 @@ MONGOLIA_KEYWORDS = [
 ]
 
 
-# Short English keywords that require word boundaries to avoid false positives.
+# Short keywords that require word boundaries to avoid false positives.
 # E.g. "ice" should NOT match "police", "meth" should NOT match "method".
-WORD_BOUNDARY_KEYWORDS = {"weed", "pot", "dope", "meth", "ice", "molly", "crack", "speed", "crank"}
+# Cyrillic abbreviations also need boundaries: "ЛСД" should NOT match "үлсдээ".
+WORD_BOUNDARY_KEYWORDS = {
+    # English short words
+    "weed", "pot", "dope", "meth", "ice", "molly", "crack", "speed", "crank",
+    # English abbreviations (uppercase, short — would match inside words)
+    "lsd", "mdma", "pcp", "ghb", "nps", "ats",
+    # Cyrillic abbreviations (would match inside Mongolian words like "үлсдээ")
+    "лсд", "мдма", "гхб", "пхп", "кнб",
+}
 
 
 def _contains_keyword(text, keyword):
@@ -351,22 +357,28 @@ def score_article(title, content, source=None):
     return score, matched_t1, matched_t2, matched_t3, title_match
 
 
-def is_drug_article(title, content, source=None):
+def is_drug_article(title, content, source=None, url=None):
     """Returns True if the article passes the drug relevance threshold AND mentions Mongolia."""
     score, _, _, _, _ = score_article(title, content, source)
     if score < 4:
         return False
     if source and source.endswith(".mn"):
         return True
-    return mentions_mongolia(title, content)
+    return mentions_mongolia(title, content, url)
 
 
-def mentions_mongolia(title, content):
+def mentions_mongolia(title, content, url=None):
     """Check if article mentions Mongolia — required for relevance filtering."""
     text = ((title or '') + ' ' + (content or '')).lower()
     for kw in MONGOLIA_KEYWORDS:
         if kw in text:
             return True
+    # Check URL as fallback (catches UNODC articles under /mongolia/ path)
+    if url:
+        url_lower = url.lower()
+        for kw in MONGOLIA_KEYWORDS:
+            if kw in url_lower:
+                return True
     return False
 
 

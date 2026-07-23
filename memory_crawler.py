@@ -550,11 +550,16 @@ def _crawl_site_html(site, session=None, max_articles=200, months=3, max_seconds
 
 GIA_API_BASE = "https://gia.gov.mn/api/v1"
 GIA_SEARCH_TERMS = [
-    # One common letter covers nearly all ~261 articles
+    # Drug-specific terms FIRST — these run before the catch-all "а" to ensure
+    # drug articles are always captured within the max_articles limit.
+    "хар тамхи", "мансууруулах", "мансууруулах бодис",
+    "наркотик", "психотроп", "сэтгэцэд нөлөөлөх",
+    "кокаин", "героин", "марихуана", "метамфетамин", "экстази",
+    "контрабанда", "хууль бус",
+    "drug", "narcotic", "trafficking",
+    # Catch-all letter — captures remaining articles (placed last so drug
+    # terms run first and drug articles aren't pushed out by max_articles).
     "а",
-    # Drug-specific terms (ensure drug articles are always captured)
-    "хар тамхи", "мансууруулах", "наркотик",
-    "drug", "narcotic",
 ]
 GIA_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
