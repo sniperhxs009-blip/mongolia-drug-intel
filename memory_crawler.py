@@ -139,25 +139,13 @@ def evict_old_articles(months=3):
 def get_cached_articles(source=None, months=None):
     """Get articles from in-memory cache, optionally filtered by source and age."""
     from copy import deepcopy
-    cutoff = datetime.now() - timedelta(days=months * 30) if months else None
     with _cache_lock:
         results = []
         for art in _article_cache.values():
             if source and art.get("source") != source:
                 continue
-            if cutoff:
-                d = art.get("date", "")
-                if not d:
-                    continue
-                try:
-                    s = str(d)[:10].replace(".", "-").strip()
-                    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", s)
-                    if m:
-                        dt = datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-                        if dt < cutoff:
-                            continue
-                except Exception:
-                    continue
+            if months and not _is_within_months(art.get("date", ""), months):
+                continue
             results.append(deepcopy(art))
         return results
 
