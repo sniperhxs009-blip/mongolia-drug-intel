@@ -2012,8 +2012,9 @@ def _is_within_months(date_str, months=3):
     if not date_str:
         return False
     try:
-        s = str(date_str)[:10].replace(".", "-").strip()
-        # Try multiple date formats
+        raw = str(date_str).strip()
+        s = raw[:10].replace(".", "-").strip()
+        # Try multiple numeric date formats
         for fmt in [r"(\d{4})-(\d{2})-(\d{2})", r"(\d{2})-(\d{2})-(\d{4})"]:
             m = re.match(fmt, s)
             if m:
@@ -2030,6 +2031,15 @@ def _is_within_months(date_str, months=3):
             dt = datetime(int(m.group(3)), int(m.group(2)), int(m.group(1)))
             cutoff = datetime.now() - timedelta(days=months * 30)
             return dt >= cutoff
+        # Text dates: "12 July 2026", "3 Jan 2026", etc. (UNODC, CARICC)
+        try:
+            from email.utils import parsedate_to_datetime
+            dt = parsedate_to_datetime(raw)
+            if dt:
+                cutoff = datetime.now() - timedelta(days=months * 30)
+                return dt.replace(tzinfo=None) >= cutoff
+        except Exception:
+            pass
         return False  # Unrecognized format, exclude
     except Exception:
         return False

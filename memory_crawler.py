@@ -152,7 +152,10 @@ def _is_within_months(date_str, months=3):
     if not date_str:
         return False
     try:
-        s = str(date_str)[:10].replace(".", "-").strip()
+        raw = str(date_str).strip()
+        s = raw[:10].replace(".", "-").strip()
+
+        # Numeric formats: YYYY-MM-DD, DD-MM-YYYY
         for fmt in [r"(\d{4})-(\d{2})-(\d{2})", r"(\d{2})-(\d{2})-(\d{4})"]:
             m = re.match(fmt, s)
             if m:
@@ -163,11 +166,23 @@ def _is_within_months(date_str, months=3):
                 dt = datetime(y, mo, d)
                 cutoff = datetime.now() - timedelta(days=months * 30)
                 return dt >= cutoff
+
+        # DD.MM.YYYY
         m = re.match(r"(\d{2})\.(\d{2})\.(\d{4})", s)
         if m:
             dt = datetime(int(m.group(3)), int(m.group(2)), int(m.group(1)))
             cutoff = datetime.now() - timedelta(days=months * 30)
             return dt >= cutoff
+
+        # Text dates: "12 July 2026", "3 Jan 2026", etc.
+        try:
+            dt = parsedate_to_datetime(raw)
+            if dt:
+                cutoff = datetime.now() - timedelta(days=months * 30)
+                return dt.replace(tzinfo=None) >= cutoff
+        except Exception:
+            pass
+
         return False
     except Exception:
         return False
