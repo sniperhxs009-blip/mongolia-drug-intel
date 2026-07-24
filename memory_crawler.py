@@ -1030,10 +1030,26 @@ def crawl_rss(site, session=None, max_articles=200, months=3, max_seconds=None):
                          "{http://www.w3.org/2005/Atom}updated"]:
             dt_el = item.find(date_tag)
             if dt_el is not None and dt_el.text:
+                raw_date = dt_el.text.strip()
                 try:
-                    pub_date = parsedate_to_datetime(dt_el.text.strip())
+                    pub_date = parsedate_to_datetime(raw_date)
                     break
                 except Exception:
+                    # Malformed dates like "2026-07-23 12:01:51.02026-07-23 12:01:51.0"
+                    m = re.match(r"(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})", raw_date)
+                    if m:
+                        try:
+                            pub_date = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")
+                            break
+                        except Exception:
+                            pass
+                    m = re.match(r"(\d{4}-\d{2}-\d{2})", raw_date)
+                    if m:
+                        try:
+                            pub_date = datetime.strptime(m.group(1), "%Y-%m-%d")
+                            break
+                        except Exception:
+                            pass
                     continue
 
         if pub_date and pub_date < cutoff:
