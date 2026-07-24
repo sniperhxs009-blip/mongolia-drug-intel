@@ -2223,6 +2223,10 @@ def quick_parse(site, url, session=None):
                 content_parts.sort(key=len, reverse=True)
                 content_parts = content_parts[:5]
 
+    # Fallback: if no date could be extracted, use today.
+    if not date:
+        date = datetime.now().strftime("%Y-%m-%d")
+
     content = "\n".join(content_parts[:10]) if content_parts else title
 
     return {
