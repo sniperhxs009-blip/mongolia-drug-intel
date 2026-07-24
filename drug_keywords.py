@@ -37,6 +37,10 @@ TIER1_KEYWORDS = [
     # Annaka specific
     "анага бодис", "кофеин натри бензоат", "аннака",
 
+    # More Mongolian drug-specific terms (unambiguous)
+    "кристал мет",  # crystal meth (full phrase)
+    "унтаадаг эм", "нойрсуулагч эм",  # sleeping pills (commonly abused)
+
     # Russian drug names
     "кокаин", "героин", "опиум", "опий",
     "конопля", "гашишное масло", "маковая соломка",
@@ -267,6 +271,17 @@ TIER3_KEYWORDS = [
     "урьдчилан сэргийлэх",        # prevention
     "эрсдэл",                      # risk
     "хорт",                        # toxic
+    # Slang / informal (safe here — only counted with TIER1/2 present)
+    "кристал",                     # crystal (meth)
+    "ширхэг",                      # piece (of drugs)
+    "ногоо",                       # greens/weed (slang)
+    "унтаадаг",                    # sleeping pills (slang)
+    "тайвшруулагч",               # sedatives
+    "чихэр",                       # candy (ecstasy slang)
+    "уусгагч",                     # solvents
+    "цавуу",                       # glue (inhalant)
+    "галлюциноген",                # hallucinogen
+    "химийн урвалж",               # chemical reagents
 ]
 
 
@@ -401,18 +416,23 @@ def match_drug_keywords(text):
 # Single source of truth — add new search terms here and all crawlers pick them up.
 
 SITE_SEARCH_TERMS = [
-    # Mongolian drug terms
+    # Mongolian drug terms — specific (not generic crime)
     "хар тамхи", "мансууруулах", "мансууруулах бодис", "мансууруулах эм",
     "наркотик", "психотроп", "сэтгэцэд нөлөөлөх",
     "кокаин", "героин", "марихуана", "метамфетамин", "экстази",
-    "контрабанда", "хууль бус", "хууль бусаар",
     "мансууруулагч", "донтолт",
     "хар тамхины наймаа", "хар тамхины наймаачин",
     "мансууруулах бодис хэрэглэсэн", "психотроп бодис",
     "нууц лаборатори", "хилээр нэвтрүүлэх",
-    "гаалийн байцаагч", "хууль бусаар тээвэрлэсэн",
-    "фентанил", "метадон", "амфетамин",
+    "хууль бусаар тээвэрлэсэн",
+    "фентанил", "метадон", "амфетамин", "кетамин",
+    "мефедрон", "трамадол", "кодеин", "морфин",
+    "спайс", "анаша", "гашиш", "каннабис",
+    "ЛСД", "МДМА", "экстази", "амфетамин",
+    # Broader drug-related terms — still drug-specific in Mongolian context
+    "контрабанда", "нарко", "хилээр нэвтрүүлэхийг",
     # Russian drug terms
     "наркотрафик", "наркокурьер", "нарколаборатория",
     "изъятие наркотиков", "контрабанда наркотиков",
+    "наркотических средств", "психотропных веществ",
 ]

@@ -3078,6 +3078,50 @@ def api_mongolia_drugs_count():
     })
 
 
+@app.route("/api/score-debug")
+def api_score_debug():
+    """Show drug score distribution across all cached articles."""
+    from drug_keywords import score_article, mentions_mongolia
+    from collections import Counter, defaultdict
+
+    all_articles = get_cached_articles(months=3)
+    score_dist = Counter()
+    near_miss = []  # articles with score 2-3 (just below threshold)
+    by_source_score = defaultdict(lambda: {"total": 0, "drug": 0, "near": 0})
+
+    for a in all_articles:
+        title = a.get("_orig_title") or a.get("title") or ""
+        content = a.get("_orig_content") or a.get("content") or ""
+        source = a.get("source", "")
+        src_label = a.get("source_label", source) or "unknown"
+
+        score, t1, t2, t3, tm = score_article(title, content, source)
+        score_dist[score] += 1
+        by_source_score[src_label]["total"] += 1
+        if score >= 4:
+            by_source_score[src_label]["drug"] += 1
+        elif score >= 2:
+            by_source_score[src_label]["near"] += 1
+            near_miss.append({
+                "title": title[:120],
+                "source": source,
+                "source_label": src_label,
+                "score": score,
+                "t1": t1[:5],
+                "t2": t2[:5],
+                "t3": t3[:5],
+            })
+
+    return jsonify({
+        "ok": True,
+        "total_articles": len(all_articles),
+        "score_distribution": {str(k): v for k, v in sorted(score_dist.items(), key=lambda x: -x[1])},
+        "by_source": {k: v for k, v in sorted(by_source_score.items(), key=lambda x: -x[1]["total"])},
+        "near_miss_count": len(near_miss),
+        "near_miss": near_miss[:30],
+    })
+
+
 @app.route("/settings")
 def settings_page():
     cache_total = get_cache_size()
