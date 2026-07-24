@@ -542,6 +542,16 @@ def _crawl_site_html(site, session=None, max_articles=200, months=3, max_seconds
                     except Exception:
                         continue
                     if art and art["title"]:
+                        # Drug pre-filter: skip articles with zero drug keywords
+                        # to reduce noise from non-drug news sites
+                        try:
+                            from drug_keywords import score_article
+                            art_score, _, _, _, _ = score_article(art.get("title",""), art.get("content",""), site.get("name",""))
+                            if art_score == 0:
+                                continue
+                            art["_drug_score"] = art_score
+                        except Exception:
+                            pass
                         d = art.get("date", "")
                         if d:
                             if not newest_date or d > newest_date:

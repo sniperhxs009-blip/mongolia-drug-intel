@@ -62,6 +62,12 @@ TIER1_KEYWORDS = [
     "NPS",         # New Psychoactive Substances
     "ATS",         # Amphetamine-Type Stimulants
 
+    # More medical/English drug terms
+    "opioid", "opioids", "naloxone", "narcan",
+    "buprenorphine", "suboxone", "stimulant", "stimulants",
+    "methadone", "dilaudid", "hydromorphone",
+    "oxycontin", "percocet", "vicodin", "xanax", "valium",
+
     # Synthetic drug categories
     "synthetic drug", "synthetic drugs", "synthetic cannabinoid",
     "amphetamine-type stimulant", "amphetamine-type stimulants",
@@ -373,11 +379,17 @@ def score_article(title, content, source=None):
 
 
 def is_drug_article(title, content, source=None, url=None):
-    """Returns True if the article passes the drug relevance threshold AND mentions Mongolia."""
+    """Returns True if the article passes the drug relevance threshold AND mentions Mongolia.
+
+    Threshold: >= 4 for international sources, >= 2 for .mn Mongolian sources.
+    Mongolian sources have higher prior probability of drug relevance when keywords match.
+    """
     score, _, _, _, _ = score_article(title, content, source)
-    if score < 4:
+    is_mn = source and source.endswith(".mn")
+    threshold = 2 if is_mn else 4
+    if score < threshold:
         return False
-    if source and source.endswith(".mn"):
+    if is_mn:
         return True
     return mentions_mongolia(title, content, url)
 

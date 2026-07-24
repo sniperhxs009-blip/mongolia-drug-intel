@@ -3053,8 +3053,9 @@ def api_mongolia_drugs_count():
         url = a.get("url", "")
 
         score, t1, t2, t3, tm = score_article(title, content, source)
-        is_drug = score >= 4
         is_mn = source.endswith(".mn") if source else False
+        threshold = 2 if is_mn else 4
+        is_drug = score >= threshold
         mentions_mn = mentions_mongolia(title, content, url) if not is_mn else True
 
         if is_drug and mentions_mn:
