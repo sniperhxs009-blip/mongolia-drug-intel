@@ -10,6 +10,7 @@ from memory_crawler import (crawl_site as mc_crawl_site, get_cached_articles,
     _article_cache, _seen_urls, _cache_lock, _is_within_months, quick_parse, http_session)
 from sites import SITES
 from drug_keywords import get_all_keywords, match_drug_keywords, score_article, mentions_mongolia
+from global_search import global_drug_search
 
 from translate import batch_translate, translate_articles_batch, DEEPSEEK_API_KEY
 from report_generator import generate_intelligence_report
@@ -156,6 +157,53 @@ _auto_crawler = {
     "crawl_lock": threading.Lock(),
 }
 
+def _print_funnel_report(funnel_stats, total_new):
+    """Print per-site pipeline funnel report after each crawl cycle."""
+    if not funnel_stats:
+        return
+
+    total_fetched = sum(s["fetched"] for s in funnel_stats)
+    errors = [s for s in funnel_stats if s["error"]]
+    no_results = [s for s in funnel_stats if s["fetched"] == 0 and not s["error"]]
+
+    print(f"\n{'='*60}")
+    print(f"[漏斗报告] 爬取漏斗统计")
+    print(f"{'='*60}")
+    print(f"{'站点':<16} {'抓取':>6} {'新增':>6} {'状态'}")
+    print(f"{'-'*16} {'-'*6} {'-'*6} {'-'*20}")
+    for s in funnel_stats:
+        status = "ERROR" if s["error"] else ("OK" if s["fetched"] > 0 else "EMPTY")
+        print(f"{s['label']:<16} {s['fetched']:>6} {s['new']:>6} {status}")
+    print(f"{'-'*16} {'-'*6} {'-'*6}")
+    print(f"{'合计':<16} {total_fetched:>6} {total_new:>6}")
+    print(f"总缓存: {get_cache_size()} 篇")
+
+    if errors:
+        print(f"\n[漏斗报告] 错误站点 ({len(errors)}):")
+        for e in errors:
+            print(f"  - {e['label']}: {e['error']}")
+
+    if no_results:
+        print(f"\n[漏斗报告] 无结果站点 ({len(no_results)}):")
+        for s in no_results:
+            print(f"  - {s['label']} ({s['name']}) — 可能是搜索URL无效或网站结构变更")
+
+    # Drug keyword quick scan on newly cached articles
+    if total_new > 0:
+        from drug_keywords import score_article as _score
+        drug_hits = 0
+        with _cache_lock:
+            recent = list(_article_cache.values())[-total_new:]
+        for d in recent:
+            title = d.get("_orig_title") or d.get("title") or ""
+            content = d.get("_orig_content") or d.get("content") or ""
+            score, _, _, _, _ = _score(title, content, d.get("source", ""))
+            if score >= 3:
+                drug_hits += 1
+        print(f"[漏斗报告] 新文章涉毒命中: {drug_hits}/{total_new} ({100*drug_hits//max(1,total_new)}%)")
+    print(f"{'='*60}\n")
+
+
 def _auto_crawl_loop():
     """Background daemon: crawl every N hours, push drug intel email after each cycle.
     Works independently of browser — server process must be running."""
@@ -201,19 +249,38 @@ def _auto_crawl_loop():
 
         pre_count = get_cache_size()
         total_new = 0
+        funnel_stats = []  # per-site funnel: {label, fetched, new, errors}
 
         for site in SITES:
             if site.get("requires_js"):
                 continue
             _auto_crawler["current_site"] = site["label"]
+            site_stat = {"label": site["label"], "name": site["name"],
+                         "fetched": 0, "new": 0, "error": None}
             try:
                 arts, new_count = mc_crawl_site(site, session, max_articles=300, months=3,
                                                    max_seconds=120, max_pages=20)
+                site_stat["fetched"] = len(arts)
+                site_stat["new"] = new_count
                 total_new += new_count
                 if new_count > 0:
                     print(f"[实时监控] {site['label']}: +{new_count} 篇新文章")
+
+                # RSS 作为补充抓取，不论 crawler_type 为何，配了 rss 字段就额外跑
+                if site.get("rss"):
+                    try:
+                        rss_arts, rss_new = memory_crawler.crawl_rss(
+                            site, session, max_articles=100, months=3, max_seconds=30)
+                        total_new += rss_new
+                        site_stat["new"] += rss_new
+                        if rss_new > 0:
+                            print(f"[实时监控] {site['label']} RSS补充: +{rss_new} 篇新文章")
+                    except Exception as e:
+                        print(f"[实时监控] {site['label']} RSS补充: 错误 - {e}")
             except Exception as e:
+                site_stat["error"] = str(e)[:80]
                 print(f"[实时监控] {site['label']}: 错误 - {e}")
+            funnel_stats.append(site_stat)
             time.sleep(0.5)
 
         _auto_crawler["last_crawl"] = datetime.now()
@@ -224,6 +291,49 @@ def _auto_crawl_loop():
         _auto_crawler["crawl_started_at"] = None
         _save_crawler_state()
         print(f"[实时监控] 爬取完成: +{total_new} 篇新文章, 共 {len(SITES)} 个站点")
+
+        # ---- Pipeline Funnel Report ----
+        _print_funnel_report(funnel_stats, total_new)
+
+        # ---- Global Drug Search (Google News RSS + DDG) ----
+        global_count = 0
+        try:
+            print("[全球搜索] 开始 Google News RSS + DDG 全球搜索...")
+            global_articles, global_count = global_drug_search(max_per_query=10, total_timeout=60)
+            if global_articles:
+                with _cache_lock:
+                    for ga in global_articles:
+                        key = ga["url"]
+                        if key in _seen_urls:
+                            continue
+                        _seen_urls.add(key)
+                        _article_cache[key] = {
+                            "title": ga["title"],
+                            "url": ga["url"],
+                            "date": ga.get("date", ""),
+                            "source": "global_search",
+                            "source_label": ga.get("source_label", ga.get("source", "全球搜索")),
+                            "content": ga.get("content", ""),
+                            "snippet": ga.get("snippet", ""),
+                            "drug_score": ga.get("drug_score", 0),
+                            "drug_confidence": ga.get("drug_confidence", 0),
+                            "drug_stage": ga.get("drug_stage", ""),
+                            "drug_types": ga.get("drug_types", []),
+                            "drug_action": ga.get("drug_action", ""),
+                            "drug_summary": ga.get("drug_summary", ""),
+                            "matched_keywords": ga.get("matched_keywords", []),
+                            "crawl_source": "global_search",
+                            "crawled_at": datetime.now().isoformat(),
+                        }
+                total_new += global_count
+                _auto_crawler["last_crawl_count"] += global_count
+                _auto_crawler["total_new_today"] += global_count
+                memory_crawler.save_cache()
+                print(f"[全球搜索] 完成: +{global_count} 篇涉毒文章 (Google News + DDG)")
+            else:
+                print("[全球搜索] 未发现新涉毒文章")
+        except Exception as e:
+            print(f"[全球搜索] 错误: {e}")
 
         # ---- Instant Drug Alert (if new articles found) ----
         if total_new > 0:

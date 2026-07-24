@@ -104,9 +104,11 @@ SITES = [
         "name": "shuum.mn",
         "label": "Shuum新闻",
         "lang": "mn",
+        "crawler_type": "keyword_search",
         "home": "https://shuum.mn/",
         "news_list": "https://shuum.mn/category/{cat}?page={page}",
         "article_url": "https://shuum.mn/news-detail/{id}",
+        "search_url": "https://shuum.mn/search?q={term}",
         "list_selectors": {
             "article_links": "a[href*='/news-detail/']",
             "link_pattern": r"/news-detail/(\d+)",
@@ -285,9 +287,11 @@ SITES = [
         "name": "unuudur.mn",
         "label": "今日报",
         "lang": "mn",
+        "crawler_type": "keyword_search",
         "home": "https://unuudur.mn/",
         "news_list": "https://unuudur.mn/as/niitlel",
         "article_url": "https://unuudur.mn/a/{id}",
+        "search_url": "https://unuudur.mn/a/search?q={term}",
         "list_selectors": {
             "article_links": "a[href*='/a/']",
             "link_pattern": r"/a/(\d+)",
@@ -371,6 +375,6 @@ INACCESSIBLE = [
     {"name": "mohs.mn", "reason": "Redirects to empty Location header - use moh.gov.mn instead"},
     {"name": "mojha.gov.mn", "reason": "Pure JS-rendered SPA - 0 links without browser"},
     {"name": "prokuror.mn", "reason": "SSL error even without verification - server likely down"},
-    {"name": "olloo.mn", "reason": "HTTP 403 - actively blocking crawlers"},
+    {"name": "olloo.mn", "reason": "Cloudflare JS challenge 403 — all UA blocked (tested Chrome/Mobile/Googlebot/Firefox on 8 URL variants 2026-07-24). Requires headless browser."},
     {"name": "intr.gov.mn", "reason": "JS-rendered SPA, custom routing with no crawlable article links"},
 ]

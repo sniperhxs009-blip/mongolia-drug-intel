@@ -11,9 +11,12 @@ import threading
 import concurrent.futures
 import warnings
 from datetime import datetime, timedelta
+from xml.etree import ElementTree as ET
+from email.utils import parsedate_to_datetime
 import requests
 from bs4 import BeautifulSoup
 from translate import translate_articles_batch
+from drug_keywords import SITE_SEARCH_TERMS
 
 warnings.filterwarnings("ignore", message="Unverified HTTPS request")
 
@@ -371,6 +374,8 @@ def crawl_site(site, session=None, max_articles=200, months=3, max_seconds=None,
         return crawl_police_search(site, session, max_articles, months, max_seconds)
     if site.get("crawler_type") == "montsame_search":
         return crawl_montsame_search(site, session, max_articles, months, max_seconds)
+    if site.get("crawler_type") == "keyword_search":
+        return crawl_keyword_search(site, session, max_articles, months, max_seconds)
     return _crawl_site_html(site, session, max_articles, months, max_seconds, max_pages)
 
 
@@ -693,15 +698,6 @@ def crawl_gia_api(site, session=None, max_articles=200, months=3, max_seconds=No
 # police.gov.mn has a search endpoint that returns article IDs.
 # The homepage only shows recent articles, but search gives access to the full archive.
 
-POLICE_SEARCH_TERMS = [
-    "хар тамхи", "мансууруулах", "мансууруулах бодис", "мансууруулах эм",
-    "наркотик", "психотроп", "сэтгэцэд нөлөөлөх",
-    "кокаин", "героин", "марихуана", "метамфетамин", "экстази",
-    "контрабанда", "хууль бус", "хууль бусаар",
-    "мансууруулагч", "донтолт",
-]
-
-
 def crawl_police_search(site, session=None, max_articles=200, months=3, max_seconds=None):
     """Crawl police.gov.mn via the search endpoint for drug-related articles."""
     s = session or requests.Session()
@@ -713,7 +709,7 @@ def crawl_police_search(site, session=None, max_articles=200, months=3, max_seco
     seen_ids = set()
     newly_parsed = []
 
-    for term in POLICE_SEARCH_TERMS:
+    for term in SITE_SEARCH_TERMS:
         if len(articles) >= max_articles:
             break
         if max_seconds and (time.time() - t0) > max_seconds:
@@ -773,20 +769,12 @@ def crawl_police_search(site, session=None, max_articles=200, months=3, max_seco
         except Exception as e:
             print(f"[翻译] {site['label']}: 失败 - {e}")
 
-    print(f"[警察总局] 搜索 {len(POLICE_SEARCH_TERMS)} 个词 → {len(articles)} 篇文章, +{new_count} 新")
+    print(f"[警察总局] 搜索 {len(SITE_SEARCH_TERMS)} 个词 → {len(articles)} 篇文章, +{new_count} 新")
     return articles, new_count
 
 
 # ---- Montsame.mn Search Crawler ----
 # montsame.mn has a search endpoint (?q=) that gives access to archive articles.
-
-MONTSAME_SEARCH_TERMS = [
-    "хар тамхи", "мансууруулах", "мансууруулах бодис",
-    "наркотик", "психотроп", "сэтгэцэд нөлөөлөх",
-    "кокаин", "героин", "марихуана", "метамфетамин", "экстази",
-    "контрабанда", "хууль бус",
-]
-
 
 def crawl_montsame_search(site, session=None, max_articles=200, months=3, max_seconds=None):
     """Crawl montsame.mn via search endpoint for drug-related articles."""
@@ -799,7 +787,7 @@ def crawl_montsame_search(site, session=None, max_articles=200, months=3, max_se
     seen_ids = set()
     newly_parsed = []
 
-    for term in MONTSAME_SEARCH_TERMS:
+    for term in SITE_SEARCH_TERMS:
         if len(articles) >= max_articles:
             break
         if max_seconds and (time.time() - t0) > max_seconds:
@@ -856,7 +844,216 @@ def crawl_montsame_search(site, session=None, max_articles=200, months=3, max_se
         except Exception as e:
             print(f"[翻译] {site['label']}: 失败 - {e}")
 
-    print(f"[蒙通社] 搜索 {len(MONTSAME_SEARCH_TERMS)} 个词 → {len(articles)} 篇文章, +{new_count} 新")
+    print(f"[蒙通社] 搜索 {len(SITE_SEARCH_TERMS)} 个词 → {len(articles)} 篇文章, +{new_count} 新")
+    return articles, new_count
+
+
+# ---- Generic Keyword Search Crawler ----
+# For sites that have a search endpoint but no homepage listing of all articles.
+# Each site config must provide: search_url (template with {term}), article_links selector,
+# link_pattern regex, and article_url template with {id} or {path}.
+
+def crawl_keyword_search(site, session=None, max_articles=200, months=3, max_seconds=None):
+    """Generic keyword-based search crawler. Uses site['search_url'] template."""
+    s = session or requests.Session()
+    s.headers.update(HEADERS)
+    t0 = time.time()
+
+    new_count = 0
+    articles = []
+    seen_ids = set()
+    newly_parsed = []
+    search_url_tpl = site.get("search_url", "")
+    if not search_url_tpl:
+        print(f"[关键词搜索] {site['label']}: 未配置 search_url, 跳过")
+        return [], 0
+
+    terms = site.get("search_terms", SITE_SEARCH_TERMS)
+    link_sel = site["list_selectors"].get("article_links", "a")
+    link_pattern = site["list_selectors"].get("link_pattern", r"/(\d+)")
+    art_url_tpl = site.get("article_url", "")
+
+    for term in terms:
+        if len(articles) >= max_articles:
+            break
+        if max_seconds and (time.time() - t0) > max_seconds:
+            break
+
+        try:
+            url = search_url_tpl.format(term=requests.utils.quote(term))
+            resp = s.get(url, timeout=15, verify=site.get("ssl_verify", True))
+            if resp.status_code != 200:
+                continue
+        except Exception:
+            continue
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for a in soup.select(link_sel):
+            href = a.get("href", "")
+            m = re.search(link_pattern, href)
+            if not m:
+                continue
+            aid = m.group(1) if m.lastindex and m.lastindex >= 1 else m.group(0)
+            if not aid or aid in seen_ids:
+                continue
+            seen_ids.add(aid)
+
+            if len(articles) >= max_articles:
+                break
+            if max_seconds and (time.time() - t0) > max_seconds:
+                break
+
+            # Build article URL — auto-detect ID vs path vs full URL
+            if aid.startswith("http"):
+                art_url = aid
+            elif aid.startswith("/") and "{path}" in art_url_tpl:
+                art_url = art_url_tpl.format(path=aid)
+            elif aid.startswith("/") and "{id}" in art_url_tpl:
+                # Path matched but only {id} template — strip leading / and use as id
+                art_url = art_url_tpl.format(id=aid.lstrip("/"))
+            elif "{id}" in art_url_tpl:
+                art_url = art_url_tpl.format(id=aid)
+            elif "{path}" in art_url_tpl:
+                art_url = art_url_tpl.format(path=aid)
+            else:
+                continue
+
+            art = quick_parse(site, art_url, s)
+            if art and art["title"]:
+                articles.append(art)
+                added = add_to_cache(art)
+                if added:
+                    new_count += 1
+                    newly_parsed.append(art)
+
+        time.sleep(0.1)
+
+    if newly_parsed:
+        for art in newly_parsed:
+            art["_orig_title"] = art.get("title", "")
+            art["_orig_content"] = art.get("content", "")
+
+    if newly_parsed:
+        try:
+            translated = translate_articles_batch(newly_parsed)
+            if translated > 0:
+                print(f"[翻译] {site['label']}: {translated}/{len(newly_parsed)} 篇已翻译为中文")
+        except Exception as e:
+            print(f"[翻译] {site['label']}: 失败 - {e}")
+
+    print(f"[关键词搜索] {site['label']}: {len(terms)} 个词 → {len(articles)} 篇文章, +{new_count} 新")
+    return articles, new_count
+
+
+# ---- RSS Feed Crawler ----
+# For sites that provide RSS feeds (ikon.mn, unodc.org).
+
+def crawl_rss(site, session=None, max_articles=200, months=3, max_seconds=None):
+    """Crawl a site via its RSS feed. Parses XML, fetches full article content."""
+    s = session or requests.Session()
+    s.headers.update(HEADERS)
+    t0 = time.time()
+
+    rss_url = site.get("rss", "")
+    if not rss_url:
+        print(f"[RSS] {site['label']}: 未配置 RSS URL")
+        return [], 0
+
+    new_count = 0
+    articles = []
+    newly_parsed = []
+    cutoff = datetime.now() - timedelta(days=months * 31)
+
+    try:
+        resp = s.get(rss_url, timeout=15, verify=site.get("ssl_verify", True))
+        if resp.status_code != 200:
+            print(f"[RSS] {site['label']}: HTTP {resp.status_code}")
+            return [], 0
+    except Exception as e:
+        print(f"[RSS] {site['label']}: 获取失败 - {e}")
+        return [], 0
+
+    try:
+        root = ET.fromstring(resp.content)
+    except Exception as e:
+        print(f"[RSS] {site['label']}: XML 解析失败 - {e}")
+        return [], 0
+
+    items = root.findall(".//item")
+    if not items:
+        items = root.findall(".//{http://www.w3.org/2005/Atom}entry")
+
+    for item in items:
+        if len(articles) >= max_articles:
+            break
+        if max_seconds and (time.time() - t0) > max_seconds:
+            break
+
+        # RSS 2.0 format
+        link_el = item.find("link")
+        link = ""
+        if link_el is not None:
+            link = (link_el.text or "").strip()
+            if not link:
+                link = link_el.get("href", "").strip()
+
+        # Atom format fallback
+        if not link:
+            for lk in item.findall("{http://www.w3.org/2005/Atom}link"):
+                href = lk.get("href", "")
+                if href:
+                    link = href
+                    break
+
+        if not link:
+            continue
+
+        # Date parsing
+        pub_date = None
+        for date_tag in ["pubDate", "{http://purl.org/dc/elements/1.1/}date",
+                         "published", "{http://www.w3.org/2005/Atom}published",
+                         "{http://www.w3.org/2005/Atom}updated"]:
+            dt_el = item.find(date_tag)
+            if dt_el is not None and dt_el.text:
+                try:
+                    pub_date = parsedate_to_datetime(dt_el.text.strip())
+                    break
+                except Exception:
+                    continue
+
+        if pub_date and pub_date < cutoff:
+            continue
+
+        # Skip if already cached
+        if is_in_cache(link):
+            continue
+
+        art = quick_parse(site, link, s)
+        if art and art["title"]:
+            if pub_date:
+                art["date"] = pub_date.strftime("%Y-%m-%d %H:%M:%S")
+            articles.append(art)
+            added = add_to_cache(art)
+            if added:
+                new_count += 1
+                newly_parsed.append(art)
+
+        time.sleep(0.05)
+
+    if newly_parsed:
+        for art in newly_parsed:
+            art["_orig_title"] = art.get("title", "")
+            art["_orig_content"] = art.get("content", "")
+
+    if newly_parsed:
+        try:
+            translated = translate_articles_batch(newly_parsed)
+            if translated > 0:
+                print(f"[翻译] {site['label']}: {translated}/{len(newly_parsed)} 篇已翻译为中文")
+        except Exception as e:
+            print(f"[翻译] {site['label']}: 失败 - {e}")
+
+    print(f"[RSS] {site['label']}: {rss_url} → {len(articles)} 篇文章, +{new_count} 新")
     return articles, new_count
 
 

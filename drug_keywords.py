@@ -393,3 +393,26 @@ def match_drug_keywords(text):
         if _contains_keyword(text_lower, kw):
             matched.append(kw)
     return matched
+
+
+# === Unified Site Search Terms ===
+# Used by search-based crawlers (police_search, montsame_search, keyword_search).
+# These are the Mongolian/Russian drug terms used to query each site's search engine.
+# Single source of truth — add new search terms here and all crawlers pick them up.
+
+SITE_SEARCH_TERMS = [
+    # Mongolian drug terms
+    "хар тамхи", "мансууруулах", "мансууруулах бодис", "мансууруулах эм",
+    "наркотик", "психотроп", "сэтгэцэд нөлөөлөх",
+    "кокаин", "героин", "марихуана", "метамфетамин", "экстази",
+    "контрабанда", "хууль бус", "хууль бусаар",
+    "мансууруулагч", "донтолт",
+    "хар тамхины наймаа", "хар тамхины наймаачин",
+    "мансууруулах бодис хэрэглэсэн", "психотроп бодис",
+    "нууц лаборатори", "хилээр нэвтрүүлэх",
+    "гаалийн байцаагч", "хууль бусаар тээвэрлэсэн",
+    "фентанил", "метадон", "амфетамин",
+    # Russian drug terms
+    "наркотрафик", "наркокурьер", "нарколаборатория",
+    "изъятие наркотиков", "контрабанда наркотиков",
+]

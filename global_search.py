@@ -21,7 +21,7 @@ HEADERS = {
 }
 
 SEARCH_QUERIES = [
-    # English — broad coverage
+    # === English — broad coverage (18 queries) ===
     ("Mongolia drug trafficking", "en"),
     ("Mongolia narcotics seizure", "en"),
     ("Mongolia drug smuggling", "en"),
@@ -36,7 +36,11 @@ SEARCH_QUERIES = [
     ("Mongolia ecstasy MDMA", "en"),
     ("Mongolia drug cartel", "en"),
     ("Mongolia drug court sentenced", "en"),
-    # Russian
+    ("Mongolia opium poppy cultivation", "en"),
+    ("Mongolia synthetic drug laboratory", "en"),
+    ("Mongolia drug overdose death", "en"),
+    ("Mongolia precursor chemical seizure", "en"),
+    # === Russian — expanded (12 queries) ===
     ("Монголия наркотики", "ru"),
     ("Монголия контрабанда наркотиков", "ru"),
     ("Монголия изъятие наркотиков", "ru"),
@@ -44,12 +48,24 @@ SEARCH_QUERIES = [
     ("Монголия наркотрафик", "ru"),
     ("Монголия нарколаборатория", "ru"),
     ("Монголия кокаин героин", "ru"),
-    # Mongolian
+    ("Монголия метамфетамин лаборатория", "ru"),
+    ("Монголия опий мак", "ru"),
+    ("Монголия психотропные вещества", "ru"),
+    ("Монголия незаконный оборот наркотиков", "ru"),
+    ("Монголия арест наркотики граница", "ru"),
+    # === Mongolian — expanded (12 queries) ===
     ("Монгол хар тамхи", "mn"),
     ("Монгол мансууруулах бодис", "mn"),
     ("Монгол хил гааль хар тамхи", "mn"),
     ("Улаанбаатар хар тамхи", "mn"),
     ("Монгол хар тамхи баривчилсан", "mn"),
+    ("Монгол мансууруулах эм хууль бус", "mn"),
+    ("Монгол психотроп бодис", "mn"),
+    ("Монгол хар тамхины наймаачин", "mn"),
+    ("Монгол нууц лаборатори хар тамхи", "mn"),
+    ("Монгол гааль хар тамхи илрүүлсэн", "mn"),
+    ("Монгол хар тамхи хэрэглэсэн баривчилсан", "mn"),
+    ("Монгол синтетик мансууруулах бодис", "mn"),
 ]
 
 MONGOLIA_TERMS = [
