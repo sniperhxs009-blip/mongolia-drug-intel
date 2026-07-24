@@ -16,7 +16,7 @@ from email.utils import parsedate_to_datetime
 import requests
 from bs4 import BeautifulSoup
 from translate import translate_articles_batch
-from drug_keywords import SITE_SEARCH_TERMS
+from drug_keywords import SITE_SEARCH_TERMS, score_article as _drug_score
 
 warnings.filterwarnings("ignore", message="Unverified HTTPS request")
 
@@ -84,12 +84,37 @@ def is_in_cache(url):
 
 
 def add_to_cache(article):
-    """Thread-safe add. Returns True if new, False if duplicate. Auto-saves every 50 articles."""
+    """Thread-safe add. Returns True if new, False if duplicate or non-drug. Auto-saves every 50 articles.
+
+    Drug pre-filter: skips articles with zero drug keyword matches, unless they're
+    from inherently drug-relevant sources (UNODC, CARICC, CSTO, GIA).
+    """
     global _save_counter
     url = article["url"]
     with _cache_lock:
         if url in _seen_urls:
             return False
+
+        # Drug pre-filter: check if article has ANY drug signal
+        try:
+            art_source = article.get("source", "")
+            art_name = article.get("_site_name", art_source)
+            score, _, _, _, _ = _drug_score(
+                article.get("title", ""),
+                article.get("content", ""),
+                art_name
+            )
+            # Always keep articles with drug signal (score > 0)
+            # For inherently drug-relevant sources, keep everything
+            is_drug_source = any(ds in (art_name or "") for ds in [
+                "unodc", "caricc", "gia.gov", "csto", "odkb", "nfa.gov", "ncmh.gov"
+            ])
+            if score == 0 and not is_drug_source:
+                return False
+            article["_drug_score"] = score
+        except Exception:
+            pass
+
         _seen_urls.add(url)
         _article_cache[url] = article
         _save_counter += 1
@@ -542,16 +567,6 @@ def _crawl_site_html(site, session=None, max_articles=200, months=3, max_seconds
                     except Exception:
                         continue
                     if art and art["title"]:
-                        # Drug pre-filter: skip articles with zero drug keywords
-                        # to reduce noise from non-drug news sites
-                        try:
-                            from drug_keywords import score_article
-                            art_score, _, _, _, _ = score_article(art.get("title",""), art.get("content",""), site.get("name",""))
-                            if art_score == 0:
-                                continue
-                            art["_drug_score"] = art_score
-                        except Exception:
-                            pass
                         d = art.get("date", "")
                         if d:
                             if not newest_date or d > newest_date:
@@ -1090,15 +1105,6 @@ def crawl_rss(site, session=None, max_articles=200, months=3, max_seconds=None):
 
         art = quick_parse(site, link, s)
         if art and art["title"]:
-            # Drug pre-filter: skip articles with zero drug keywords
-            try:
-                from drug_keywords import score_article
-                art_score, _, _, _, _ = score_article(art.get("title",""), art.get("content",""), site.get("name",""))
-                if art_score == 0:
-                    continue
-                art["_drug_score"] = art_score
-            except Exception:
-                pass
             if pub_date:
                 art["date"] = pub_date.strftime("%Y-%m-%d %H:%M:%S")
             articles.append(art)
