@@ -366,13 +366,15 @@ def score_article(title, content, source=None):
     score += len(matched_t1) * 3
     score += len(matched_t2) * 2
 
-    # TIER 3 only counts if TIER 1 or 2 also matched (prevents boilerplate-only matches)
+    # Strong signal: at least one TIER1 or TIER2 keyword matched
     has_strong_signal = len(matched_t1) > 0 or len(matched_t2) > 0
+
+    # TIER 3 only counts if TIER 1 or 2 also matched (prevents boilerplate-only matches)
     if has_strong_signal:
         score += len(matched_t3) * 1
 
-    # Title bonus
-    if title_match:
+    # Title bonus: +2 if title has a keyword AND article has strong signal
+    if title_match and has_strong_signal:
         score += 2
 
     return score, matched_t1, matched_t2, matched_t3, title_match

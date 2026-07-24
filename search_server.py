@@ -2993,15 +2993,39 @@ def api_stats():
     high_risk_count = 0
     daily_counts = defaultdict(int)
 
+    # Use drug_keywords scoring on original text for accurate is_drug check
+    try:
+        from drug_keywords import score_article, is_drug_article
+    except ImportError:
+        score_article = None
+        is_drug_article = None
+
     for a in all_articles:
         date_str = str(a.get("date", ""))[:10]
         if date_str:
             daily_counts[date_str] += 1
 
+        # Use original (pre-translation) text for drug keyword matching
+        orig_title = a.get("_orig_title") or a.get("title") or ""
+        orig_content = a.get("_orig_content") or a.get("content") or ""
+        source = a.get("source", "")
+
+        # Drug keywords scoring on original text (more accurate than AI on Chinese text)
+        if score_article:
+            kw_score, _, _, _, _ = score_article(orig_title, orig_content, source)
+            is_mn = source.endswith(".mn")
+            kw_threshold = 2 if is_mn else 4
+            is_drug_kw = kw_score >= kw_threshold
+        else:
+            is_drug_kw = False
+
+        # Also run DrugAnalyzer for rich analysis (drug types, AI summary, etc.)
         title = a.get("title") or ""
         content = a.get("content") or ""
-        analysis = analyzer.analyze(title, content, a.get("source"))
-        if analysis["is_drug"]:
+        analysis = analyzer.analyze(title, content, source)
+
+        # Combine: use keyword score as primary is_drug check
+        if is_drug_kw or analysis["is_drug"]:
             drug_article_count += 1
             if analysis["score"] >= 60:
                 high_risk_count += 1

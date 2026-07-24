@@ -1090,6 +1090,15 @@ def crawl_rss(site, session=None, max_articles=200, months=3, max_seconds=None):
 
         art = quick_parse(site, link, s)
         if art and art["title"]:
+            # Drug pre-filter: skip articles with zero drug keywords
+            try:
+                from drug_keywords import score_article
+                art_score, _, _, _, _ = score_article(art.get("title",""), art.get("content",""), site.get("name",""))
+                if art_score == 0:
+                    continue
+                art["_drug_score"] = art_score
+            except Exception:
+                pass
             if pub_date:
                 art["date"] = pub_date.strftime("%Y-%m-%d %H:%M:%S")
             articles.append(art)
