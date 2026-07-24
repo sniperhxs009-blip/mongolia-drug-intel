@@ -3010,6 +3010,48 @@ def api_stats():
         "crawler": crawler_info,
     })
 
+
+@app.route("/api/mongolia-drugs-count")
+def api_mongolia_drugs_count():
+    """Count Mongolia drug articles using drug_keywords scoring (>=4 threshold)."""
+    from drug_keywords import score_article, mentions_mongolia
+
+    all_articles = get_cached_articles(months=3)
+    drug_articles = []
+    by_source = {}
+
+    for a in all_articles:
+        title = a.get("_orig_title") or a.get("title") or ""
+        content = a.get("_orig_content") or a.get("content") or ""
+        source = a.get("source", "")
+        url = a.get("url", "")
+
+        score, t1, t2, t3, tm = score_article(title, content, source)
+        is_drug = score >= 4
+        is_mn = source.endswith(".mn") if source else False
+        mentions_mn = mentions_mongolia(title, content, url) if not is_mn else True
+
+        if is_drug and mentions_mn:
+            src_label = a.get("source_label", source) or "unknown"
+            by_source[src_label] = by_source.get(src_label, 0) + 1
+            drug_articles.append({
+                "title": title[:100],
+                "source": source,
+                "source_label": src_label,
+                "score": score,
+                "url": url,
+                "date": str(a.get("date", ""))[:10],
+            })
+
+    return jsonify({
+        "ok": True,
+        "total_articles": len(all_articles),
+        "mongolia_drug_articles": len(drug_articles),
+        "by_source": dict(sorted(by_source.items(), key=lambda x: -x[1])),
+        "drug_articles": drug_articles[:50],
+    })
+
+
 @app.route("/settings")
 def settings_page():
     cache_total = get_cache_size()
