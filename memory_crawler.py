@@ -174,14 +174,28 @@ def _is_within_months(date_str, months=3):
             cutoff = datetime.now() - timedelta(days=months * 30)
             return dt >= cutoff
 
-        # Text dates: "12 July 2026", "3 Jan 2026", etc.
-        try:
-            dt = parsedate_to_datetime(raw)
-            if dt:
+        # Text dates: "12 July 2026", "12 Jul 2026", "3 Jan 2026", etc.
+        # Month name mapping (full + abbreviated, English + Russian)
+        _MONTHS = {
+            "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+            "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12,
+            "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+            "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+            "января": 1, "февраля": 2, "марта": 3, "апреля": 4, "мая": 5, "июня": 6,
+            "июля": 7, "августа": 8, "сентября": 9, "октября": 10, "ноября": 11, "декабря": 12,
+            "янв": 1, "фев": 2, "мар": 3, "апр": 4, "июн": 6, "июл": 7, "авг": 8,
+            "сен": 9, "окт": 10, "ноя": 11, "дек": 12,
+        }
+        m = re.match(r"(\d{1,2})\s+([a-zA-Zа-яА-Я]+)\s*,?\s*(\d{4})", raw)
+        if m:
+            day = int(m.group(1))
+            month_name = m.group(2).lower()
+            year = int(m.group(3))
+            mo = _MONTHS.get(month_name)
+            if mo:
+                dt = datetime(year, mo, day)
                 cutoff = datetime.now() - timedelta(days=months * 30)
-                return dt.replace(tzinfo=None) >= cutoff
-        except Exception:
-            pass
+                return dt >= cutoff
 
         return False
     except Exception:
